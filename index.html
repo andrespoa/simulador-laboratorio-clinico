@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laboratorio Clínico | Control Ambiental IoT & Simulación 3D</title>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- FontAwesome Icons CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+  <!-- Three.js r128 & Addons -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #080c14;
+      color: #e2e8f0;
+      user-select: none;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Professional Clinical Dark Panels */
+    .bms-panel {
+      background: rgba(13, 19, 33, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.65),
+                  0 0 1px 1px rgba(255, 255, 255, 0.04) inset;
+    }
+
+    .bms-card {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: all 0.2s ease;
+    }
+
+    .bms-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    /* Accordion transitions */
+    .accordion-content {
+      transition: max-height 0.25s ease-out, opacity 0.2s ease-out;
+      overflow: hidden;
+    }
+
+    .chevron-icon {
+      transition: transform 0.25s ease;
+    }
+
+    /* Smooth sidebar hide/show animations */
+    .sidebar-panel {
+      transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+    }
+
+    .sidebar-collapsed-left {
+      transform: translateX(-110%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .sidebar-collapsed-right {
+      transform: translateX(110%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Scrollbars */
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.32);
+    }
+
+    /* Status indicators */
+    .led-dot-ok {
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
+    }
+    .led-dot-alert {
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.95);
+      animation: alert-blink 0.7s infinite alternate;
+    }
+    @keyframes alert-blink {
+      from { opacity: 0.5; filter: brightness(1.0); }
+      to { opacity: 1.0; filter: brightness(1.5); }
+    }
+
+    @keyframes fan-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-fan {
+      animation: fan-spin 0.45s linear infinite;
+    }
+
+    /* Sector cell */
+    .sector-cell {
+      transition: all 0.2s ease;
+    }
+    .sector-cell:hover {
+      filter: brightness(1.2);
+      transform: scale(1.03);
+    }
+  </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden">
+
+  <!-- 3D Canvas Mount -->
+  <div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+  <!-- Loading Screen Overlay -->
+  <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 bg-opacity-95 backdrop-blur-xl transition-opacity duration-600">
+    <div class="max-w-md w-full p-7 rounded-xl bms-panel text-center relative border border-slate-700/60 shadow-2xl">
+      <div class="w-14 h-14 mx-auto mb-4 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+        <i class="fa-solid fa-hospital-user text-2xl"></i>
+      </div>
+      <h2 class="text-base font-bold tracking-tight text-white mb-1">Laboratorio de Simulación Clínica</h2>
+      <p class="text-xs text-slate-400 mb-5 font-mono">Cargando gemelo digital 3D y telemetría de sensores...</p>
+
+      <div class="w-full bg-slate-800 rounded-full h-2 mb-3 overflow-hidden p-0.5 border border-white/5">
+        <div id="loading-bar-fill" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-200" style="width: 0%"></div>
+      </div>
+
+      <div class="flex justify-between items-center text-xs text-slate-400 font-mono">
+        <span id="loading-progress-text">Iniciando descarga...</span>
+        <span id="loading-percentage" class="text-cyan-400 font-semibold">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOP HEADER (BARRA DE CONTROL PRINCIPAL) -->
+  <header class="absolute top-3 left-3 right-3 z-20 flex flex-wrap justify-between items-center px-4 py-2.5 rounded-xl bms-panel">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-cyan-400">
+        <i class="fa-solid fa-hospital text-sm"></i>
+      </div>
+      <div>
+        <h1 class="text-xs sm:text-sm font-semibold tracking-wide uppercase text-white flex items-center gap-2">
+          Laboratorio de Simulación Clínica
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10">BMS / IoT</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 font-mono">Supervisión Climática y Mitigación Preventiva de Humedad</p>
+      </div>
+    </div>
+
+    <!-- Status badges and layout buttons -->
+    <div class="flex items-center space-x-2 sm:space-x-3 text-xs">
+      <!-- Master Mode Toggle: Vista Inmersiva -->
+      <button id="btn-toggle-immersive" title="Ocultar o mostrar todos los paneles" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-white/10 text-xs font-medium transition-all">
+        <i id="icon-immersive" class="fa-solid fa-expand text-cyan-400 text-[11px]"></i>
+        <span id="text-immersive" class="hidden md:inline">Vista Inmersiva</span>
+      </button>
+
+      <!-- System Status -->
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-white/5 font-mono text-[11px]">
+        <span id="system-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 led-dot-ok"></span>
+        <span id="system-status-text" class="text-slate-300">ESTADO: NOMINAL</span>
+      </div>
+
+      <!-- Live Clock -->
+      <div id="live-clock" class="hidden sm:block px-2.5 py-1.5 rounded-lg bg-slate-900/80 border border-white/5 font-mono text-slate-400 text-[11px]">
+        00:00:00
+      </div>
+    </div>
+  </header>
+
+  <!-- QUICK ACCESS FLOATING TABS (Aparecen cuando los paneles se esconden) -->
+  <div class="absolute inset-y-0 left-3 z-30 flex items-center pointer-events-none">
+    <button id="tab-reopen-left" class="pointer-events-auto hidden px-3 py-2 rounded-r-xl bms-panel text-xs font-mono text-cyan-400 hover:text-white border-l-0 shadow-xl transition-all flex items-center gap-2">
+      <i class="fa-solid fa-chart-simple"></i>
+      <span>Telemetría</span>
+      <i class="fa-solid fa-chevron-right text-[10px]"></i>
+    </button>
+  </div>
+
+  <div class="absolute inset-y-0 right-3 z-30 flex items-center pointer-events-none">
+    <button id="tab-reopen-right" class="pointer-events-auto hidden px-3 py-2 rounded-l-xl bms-panel text-xs font-mono text-cyan-400 hover:text-white border-r-0 shadow-xl transition-all flex items-center gap-2">
+      <i class="fa-solid fa-chevron-left text-[10px]"></i>
+      <span>Controles</span>
+      <i class="fa-solid fa-sliders"></i>
+    </button>
+  </div>
+
+  <!-- MAIN HUD GRID (PANELES LATERALES COLAPSABLES) -->
+  <main class="absolute inset-0 pointer-events-none z-10 flex justify-between p-3 pt-20 pb-3">
+    
+    <!-- ========================================================================= -->
+    <!-- PANEL IZQUIERDO: TELEMETRÍA Y SECTORES AMBIENTALES                        -->
+    <!-- ========================================================================= -->
+    <aside id="left-sidebar" class="sidebar-panel w-80 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll pr-1">
+      
+      <!-- Barra superior del panel izquierdo (Permite ocultar todo el panel) -->
+      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs">
+        <span class="font-semibold text-slate-300 flex items-center gap-1.5 text-[11px]">
+          <i class="fa-solid fa-gauge text-cyan-400"></i> Panel de Monitoreo
+        </span>
+        <button id="btn-close-left-sidebar" title="Ocultar panel izquierdo" class="text-slate-400 hover:text-white p-1 rounded transition-colors text-xs">
+          <i class="fa-solid fa-chevron-left"></i>
+        </button>
+      </div>
+
+      <!-- SECCIÓN 1: TELEMETRÍA GLOBAL (COLAPSABLE) -->
+      <div class="rounded-xl bms-panel overflow-hidden">
+        <!-- Accordion Header -->
+        <button id="header-sec-telemetry" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-temperature-three-quarters text-cyan-400 text-xs"></i>
+            Telemetría Ambiental
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-telemetry" class="accordion-content p-3 space-y-2.5">
+          <div class="grid grid-cols-2 gap-2">
+            <!-- Temp Card -->
+            <div class="bms-card p-2.5 rounded-lg flex flex-col justify-between">
+              <div class="flex items-center justify-between text-slate-400 text-[11px]">
+                <span>Temp. Media</span>
+                <i class="fa-solid fa-temperature-half text-amber-400 text-xs"></i>
+              </div>
+              <div class="mt-1.5 flex items-baseline gap-1">
+                <span id="val-temp-avg" class="text-2xl font-bold font-mono text-white">24.5</span>
+                <span class="text-xs text-slate-400 font-mono">°C</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div id="bar-temp" class="bg-gradient-to-r from-blue-400 to-amber-500 h-full rounded-full transition-all duration-300" style="width: 45%"></div>
+              </div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div class="bms-card p-2.5 rounded-lg flex flex-col justify-between">
+              <div class="flex items-center justify-between text-slate-400 text-[11px]">
+                <span>Humedad Máx.</span>
+                <i class="fa-solid fa-droplet text-cyan-400 text-xs"></i>
+              </div>
+              <div class="mt-1.5 flex items-baseline gap-1">
+                <span id="val-hum-max" class="text-2xl font-bold font-mono text-cyan-400">52.0</span>
+                <span class="text-xs text-slate-400 font-mono">%</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div id="bar-hum" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-rose-500 h-full rounded-full transition-all duration-300" style="width: 52%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="text-[10px] text-slate-500 font-mono text-right">Rango seguro: &lt;68% HR</div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 2: ESTADO DE ACTUADORES (COLAPSABLE) -->
+      <div class="rounded-xl bms-panel overflow-hidden">
+        <!-- Accordion Header -->
+        <button id="header-sec-actuators" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-wind text-cyan-400 text-xs"></i>
+            Actuadores HVAC & Sensor
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-actuators" class="accordion-content p-3 space-y-2">
+          <!-- Extractor Card -->
+          <div class="bms-card p-2 rounded-lg flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div id="icon-extractor-container" class="w-7 h-7 rounded-md bg-slate-800 flex items-center justify-center text-slate-400 transition-colors">
+                <i id="icon-extractor" class="fa-solid fa-fan text-xs"></i>
+              </div>
+              <div>
+                <div class="text-xs font-medium text-slate-200">Extractor de Pared</div>
+                <div id="status-extractor-rpm" class="text-[10px] font-mono text-slate-400">0 RPM • Inactivo</div>
+              </div>
+            </div>
+            <span id="badge-extractor" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-800 text-slate-400">OFF</span>
+          </div>
+
+          <!-- Sensor LED Card -->
+          <div class="bms-card p-2 rounded-lg flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div id="badge-sensor-led" class="w-3.5 h-3.5 rounded-full bg-emerald-500 led-dot-ok ml-2"></div>
+              <div>
+                <div class="text-xs font-medium text-slate-200">LED Sensor Clínico</div>
+                <div id="status-sensor-led-txt" class="text-[10px] font-mono text-emerald-400">NORMAL (0x10b981)</div>
+              </div>
+            </div>
+            <span id="badge-sensor-alert" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">SEGURO</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 3: MATRIZ 3x3 DE SECTORES (COLAPSABLE) -->
+      <div class="rounded-xl bms-panel overflow-hidden">
+        <!-- Accordion Header -->
+        <button id="header-sec-sectors" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-border-all text-cyan-400 text-xs"></i>
+            Matriz de Sectores 3×3
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-sectors" class="accordion-content p-3 space-y-2">
+          <div class="flex justify-between items-center text-[10px] text-slate-400 font-mono">
+            <span>9 Nodos Ambientales</span>
+            <span id="active-mode-tag" class="text-cyan-400">Modo Físico</span>
+          </div>
+
+          <div id="sectors-grid-container" class="grid grid-cols-3 gap-1.5 p-1.5 rounded-lg bg-slate-950/70 border border-white/5">
+            <!-- Sectores S1 - S9 -->
+          </div>
+
+          <div class="flex justify-between text-[9px] text-slate-500 font-mono px-0.5">
+            <span>S1: Entrada</span>
+            <span>S9: Quirófano</span>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ========================================================================= -->
+    <!-- PANEL DERECHO: MODOS 3D, ACCIONES Y REGISTRO DE EVENTOS                   -->
+    <!-- ========================================================================= -->
+    <aside id="right-sidebar" class="sidebar-panel w-96 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll pl-1">
+      
+      <!-- Barra superior del panel derecho -->
+      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs">
+        <span class="font-semibold text-slate-300 flex items-center gap-1.5 text-[11px]">
+          <i class="fa-solid fa-sliders text-cyan-400"></i> Control y Registro
+        </span>
+        <button id="btn-close-right-sidebar" title="Ocultar panel derecho" class="text-slate-400 hover:text-white p-1 rounded transition-colors text-xs">
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+
+      <!-- SECCIÓN 1: MODOS DE VISUALIZACIÓN 3D (COLAPSABLE) -->
+      <div class="rounded-xl bms-panel overflow-hidden">
+        <!-- Accordion Header -->
+        <button id="header-sec-viewmodes" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-layer-group text-cyan-400 text-xs"></i>
+            Visualización 3D
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-viewmodes" class="accordion-content p-3 space-y-2">
+          <div class="grid grid-cols-3 gap-1.5 p-1 bg-slate-950/70 rounded-lg border border-white/5 text-xs font-medium">
+            <button id="btn-mode-real" class="py-1.5 px-2 rounded-md transition-all text-center bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm text-[11px]">
+              Modo Real
+            </button>
+            <button id="btn-mode-temp" class="py-1.5 px-2 rounded-md transition-all text-center text-slate-400 hover:text-white hover:bg-white/5 text-[11px]">
+              Mapa Temp
+            </button>
+            <button id="btn-mode-hum" class="py-1.5 px-2 rounded-md transition-all text-center text-slate-400 hover:text-white hover:bg-white/5 text-[11px]">
+              Mapa Humedad
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 2: SIMULACIÓN Y MITIGACIÓN AMBIENTAL (COLAPSABLE) -->
+      <div class="rounded-xl bms-panel overflow-hidden">
+        <!-- Accordion Header -->
+        <button id="header-sec-simulation" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-microchip text-cyan-400 text-xs"></i>
+            Protocolos de Simulación
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-simulation" class="accordion-content p-3 space-y-2">
+          <button id="btn-sim-night" class="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-amber-500/15 to-rose-500/15 hover:from-amber-500/25 hover:to-rose-500/25 border border-amber-500/30 text-amber-200 text-xs font-semibold flex items-center justify-between transition-all group">
+            <span class="flex items-center gap-2">
+              <i class="fa-solid fa-moon text-amber-400 group-hover:rotate-12 transition-transform"></i>
+              Simular Noche (Apagar AC)
+            </span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">+Humedad &uarr;</span>
+          </button>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button id="btn-force-extractor" class="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-white/10 text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-all">
+              <i class="fa-solid fa-bolt text-cyan-400 text-xs"></i> Forzar Extractor
+            </button>
+            <button id="btn-reset-env" class="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-white/10 text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-all">
+              <i class="fa-solid fa-rotate-left text-slate-400 text-xs"></i> Restablecer
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 3: REGISTRO DE EVENTOS Y CONTROL (COLAPSABLE) -->
+      <div class="flex-1 min-h-[220px] rounded-xl bms-panel overflow-hidden flex flex-col">
+        <!-- Accordion Header -->
+        <div class="flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 border-b border-white/5 bg-slate-900/40">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-terminal text-cyan-400 text-xs"></i>
+            Registro de Eventos y Actuadores
+          </span>
+          <button id="btn-clear-terminal" class="text-[10px] text-slate-500 hover:text-slate-300 font-mono transition-colors">
+            Limpiar
+          </button>
+        </div>
+
+        <!-- Terminal Logs Body -->
+        <div id="terminal-logs" class="custom-scroll flex-1 font-mono text-[11px] space-y-1.5 overflow-y-auto p-2.5 select-text bg-slate-950/85">
+          <!-- Registros dinámicos -->
+        </div>
+
+        <!-- Status Footer -->
+        <div class="px-3 py-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500 bg-slate-950/60">
+          <span>Ciclo de control: 200 ms</span>
+          <span>Umbral crítico: &gt;68% HR</span>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- BOTTOM TOOLBAR (CONTROLES DE CÁMARA) -->
+  <footer class="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-auto px-4 py-1.5 rounded-full bms-panel flex items-center space-x-3 sm:space-x-4 text-[11px] text-slate-400 font-mono shadow-lg border border-white/5">
+    <span class="flex items-center gap-1.5"><i class="fa-solid fa-arrows-up-down-left-right text-cyan-400"></i> Rotar: Clic Izq.</span>
+    <span class="text-slate-600">|</span>
+    <span class="flex items-center gap-1.5"><i class="fa-solid fa-magnifying-glass text-cyan-400"></i> Zoom: Scroll</span>
+    <span class="text-slate-600">|</span>
+    <span class="flex items-center gap-1.5"><i class="fa-solid fa-hand text-cyan-400"></i> Mover: Clic Der.</span>
+  </footer>
+
+  <!-- Main JavaScript Application Logic -->
+  <script src="js/main.js"></script>
+</body>
+</html>
