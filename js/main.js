@@ -1,34 +1,95 @@
 /**
  * ==============================================================================
  * SIMULADOR 3D: LABORATORIO DE SIMULACIÓN CLÍNICA (BMS / IoT)
- * Sistema de Control Ambiental Hospitalario y Mitigación Preventiva
+ * Control Microclimático, Tareas Preventivas de IA y Análisis de Vida Útil
  * ==============================================================================
  */
 
 // --- CONFIGURACIÓN GLOBAL Y PARÁMETROS AMBIENTALES ---
 const CONFIG = {
   MODEL_PATH: 'public/simulador3d.glb',
-  CRITICAL_HUMIDITY: 68.0,     // Umbral de activación de mitigación (%)
-  TARGET_HUMIDITY: 50.0,       // Umbral de normalización ambiental (%)
-  COLOR_LED_OK: 0x10b981,      // Verde esmeralda óptimo
-  COLOR_LED_ALERT: 0xef4444,   // Rojo alerta crítica
-  PARTICLE_COUNT: 1800,        // Partículas luminiscentes de aire/humedad
-  EXTRACTOR_MAX_RPM: 1800,     // RPM máxima del extractor
-  EXTRACTOR_MAX_RAD: 22.0,     // Velocidad angular (rad/s)
-  SECTOR_HEIGHT: 0.35          // Altura calibrada a la escala del modelo
+  CRITICAL_HUMIDITY: 65.0,     // Umbral de alerta por riesgo de humedad (%)
+  TARGET_HUMIDITY: 50.0,       // Humedad objetivo recomendada (%)
+  OPTIMAL_TEMP: 22.0,          // Temperatura óptima recomendada (°C)
+  PARTICLE_COUNT: 2400,        // Partículas luminiscentes distribuidas en toda la sala
+  SECTOR_HEIGHT: 0.38          // Altura calibrada de los bloques de sector
 };
+
+// --- DEFINICIÓN DE LAS 4 TAREAS PREVENTIVAS DE LA IA (MÁXIMO 4) ---
+const AI_TASK_DEFINITIONS = [
+  {
+    id: 'task-ac-dehum',
+    title: 'Deshumidificación Profunda en AC Central',
+    category: 'Climatización HVAC',
+    desc: 'Activar condensación frigorífica profunda en serpentín del AC central y drenaje continuo.',
+    impactHum: 8.5,
+    impactTemp: 1.2,
+    targetSectors: ['S4', 'S5', 'S6'],
+    minHumTrigger: 66.5,
+    minTempTrigger: 24.1,
+    unlocked: false,
+    completed: false,
+    inProgress: false
+  },
+  {
+    id: 'task-manikin-purge',
+    title: 'Purga y Secado en Simuladores de Pacientes (S1-S3)',
+    category: 'Simulación Biomédica',
+    desc: 'Secado de vías respiratorias, sensores internos y purga de cavidades en maniquíes clínicos.',
+    impactHum: 12.0,
+    impactTemp: 0.5,
+    targetSectors: ['S1', 'S2', 'S3'],
+    minHumTrigger: 69.0,
+    minTempTrigger: 24.5,
+    unlocked: false,
+    completed: false,
+    inProgress: false
+  },
+  {
+    id: 'task-flow-redistrib',
+    title: 'Redistribución de Flujo Laminar Periférico',
+    category: 'Ventilación Clínica',
+    desc: 'Ajuste de deflectores para disipar microclimas estancados hacia las zonas de retorno.',
+    impactHum: 6.5,
+    impactTemp: 0.8,
+    targetSectors: ['S7', 'S8', 'S9'],
+    minHumTrigger: 73.0,
+    minTempTrigger: 25.2,
+    unlocked: false,
+    completed: false,
+    inProgress: false
+  },
+  {
+    id: 'task-hepa-dewpoint',
+    title: 'Filtros HEPA & Control de Punto de Rocío',
+    category: 'Filtración y Preservación',
+    desc: 'Regulación higrométrica crítica para evitar condensación superficial sobre equipos médicos.',
+    impactHum: 7.0,
+    impactTemp: 0.4,
+    targetSectors: ['all'],
+    minHumTrigger: 77.0,
+    minTempTrigger: 25.8,
+    unlocked: false,
+    completed: false,
+    inProgress: false
+  }
+];
 
 // --- ESTADO CENTRAL DE LA SIMULACIÓN ---
 const LabState = {
   viewMode: 'real',            // 'real' | 'temp' | 'humidity'
-  isNightSimActive: false,     // Simulación de noche (AC en reposo)
-  extractorActive: false,      // Estado de trabajo del extractor
-  extractorCurrentRPM: 0,      // RPM actual interpolada
-  extractorSpeed: 0,           // Velocidad angular actual
-  ledStatus: 'OK',             // 'OK' | 'ALERT'
-  avgTemp: 24.5,               // Temperatura promedio (°C)
-  maxHumidity: 52.0,           // Humedad máxima encontrada (%)
-  avgHumidity: 50.5,           // Humedad promedio (%)
+  isSimulationRunning: false,  // Simulación de alza (AC apagado)
+  acIsOn: true,                // Estado del aire acondicionado central
+  currentParticleOpacity: 0.82,// Opacidad dinámica del sistema de partículas
+  acEntranceActive: false,     // Animación de entrada de partículas desde el AC
+  acEntranceTimer: 0.0,        // Temporizador de ráfaga de entrada
+  simSpeed: 1.0,               // Multiplicador de velocidad de simulación
+  avgTemp: 23.8,               // Temperatura promedio de la sala (°C)
+  centerTemp: 20.5,            // Temperatura del centro S5 (más frío por AC)
+  maxTemp: 26.2,               // Temperatura máxima
+  avgHumidity: 54.5,           // Humedad promedio de la sala (%)
+  maxHumidity: 64.5,           // Humedad máxima encontrada (%)
+  manikinsAvgHumidity: 62.0,   // Humedad promedio en zona de maniquíes (S1-S3)
   sectors: [],                 // 9 sectores (S1 a S9)
   // Límites reales del laboratorio calibrados desde el modelo Blender
   labBounds: {
@@ -37,38 +98,37 @@ const LabState = {
     center: new THREE.Vector3(-0.56, 0.48, 0.0),
     size: new THREE.Vector3(2.70, 0.97, 1.87)
   },
-  // Coordenadas reales de los equipos en el modelo 3D
-  acEmitterPos: new THREE.Vector3(-0.56, 0.94, 0.0),   // Salida del AC central en techo
-  extractorPos: new THREE.Vector3(0.68, 0.30, 0.79),   // Extractor real en la pared derecha
-  iotDevicePos: new THREE.Vector3(0.65, 0.82, -0.01)   // Dispositivo IoT en la pared
+  // Coordenadas reales del Aire Acondicionado central en el techo
+  acEmitterPos: new THREE.Vector3(-0.56, 0.94, 0.0),
+  // Sistema de Tareas Preventivas de la IA
+  aiTasks: []
 };
 
-// --- VARIABLES THREE.JS ---
+// --- VARIABLES THREE.JS & CHARTS ---
 let scene, camera, renderer, controls, clock;
-let extractorMesh = null;       // Aspas reales del extractor (root.2)
-let centralACMesh = null;       // Unidad de aire central (model.001)
-let iotDeviceMesh = null;       // Dispositivo IoT (dispositivoiot)
-let ledIndicatorMesh = null;    // Lente LED sobre el dispositivo
-let ledPointLight = null;       // Luz dinámica emitida por el LED
-let particleSystem = null;      // Sistema de partículas de aire/humedad
+let centralACMesh = null;
+let particleSystem = null;
 let sectorGroup = new THREE.Group();
 let labelsGroup = new THREE.Group();
+let lifecycleChartInstance = null;
+let currentChartMode = 'both'; // 'both' | 'preventive' | 'failure'
+let toastTimeout = null;
 
 // ==============================================================================
-// 1. INICIALIZACIÓN DE LA ESCENA THREE.JS
+// 1. INICIALIZACIÓN DE LA APLICACIÓN
 // ==============================================================================
 function initEngine() {
   const container = document.getElementById('canvas-container');
   clock = new THREE.Clock();
 
-  // Escena con fondo neutro clínico
+  // Escena con fondo clínico profundo
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x080c14);
-  scene.fog = new THREE.FogExp2(0x080c14, 0.035);
+  scene.fog = new THREE.FogExp2(0x080c14, 0.032);
   scene.add(sectorGroup);
   scene.add(labelsGroup);
 
-  // Cámara con encuadre clínico
+  // Cámara con perspectiva clínica
   camera = new THREE.PerspectiveCamera(
     42,
     window.innerWidth / window.innerHeight,
@@ -88,7 +148,7 @@ function initEngine() {
   renderer.toneMappingExposure = 1.15;
   container.appendChild(renderer.domElement);
 
-  // OrbitControls centrados en el laboratorio
+  // OrbitControls centrados en la sala
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
@@ -100,21 +160,28 @@ function initEngine() {
   // Iluminación clínica
   setupLighting();
 
-  // Inicializar sectores
+  // Inicializar sectores con calibración física
   initSectorData();
 
-  // Cargar modelo real simulador3d.glb
+  // Inicializar sistema de tareas preventivas de la IA
+  initAITasks();
+
+  // Cargar modelo 3D real
   loadLaboratoryModel();
 
-  // Configurar listeners de interfaz (acordeones y colapsables)
+  // Configurar listeners de interfaz y acordeones
   setupEventListeners();
   setupSidebarControls();
 
-  // Loop de renderizado
+  // Inicializar gráficas de ciclo de vida útil con Chart.js
+  initLifecycleChart();
+
+  // Loop principal de renderizado
   animate();
 
-  addAILog('SISTEMA', 'Inicializando gemelo digital del Laboratorio Clínico...', 'system');
-  addAILog('CONTROL-HVAC', 'Sistema de supervisión ambiental activo. 9 nodos IoT en línea.', 'action');
+  addAILog('SISTEMA', 'Gemelo Digital 3D inicializado con éxito.', 'system');
+  addAILog('AC-CLIMA', 'Aire Acondicionado Central activo. Inyección de flujo continuo.', 'ok');
+  addAILog('IA-CONTROL', 'Supervisión de microclima activa: Foco de maniquíes y descarga de AC calibrados.', 'action');
 }
 
 // ==============================================================================
@@ -143,15 +210,10 @@ function setupLighting() {
   const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
   fillLight.position.set(-2.5, 2.0, -1.5);
   scene.add(fillLight);
-
-  // Luz puntual del sensor LED
-  ledPointLight = new THREE.PointLight(CONFIG.COLOR_LED_OK, 1.5, 1.8);
-  ledPointLight.position.copy(LabState.iotDevicePos);
-  scene.add(ledPointLight);
 }
 
 // ==============================================================================
-// 3. CARGA DEL MODELO 3D REAL (Identificación directa de componentes)
+// 3. CARGA DEL MODELO 3D REAL (sin extractores ni LEDs artificiales)
 // ==============================================================================
 function loadLaboratoryModel() {
   const loader = new THREE.GLTFLoader();
@@ -183,7 +245,7 @@ function loadLaboratoryModel() {
       );
       controls.update();
 
-      // RECORRIDO DE ESCENA: Vincular componentes reales del modelo Blender
+      // Recorrer la escena para optimizar materiales y ubicar el AC central
       model.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
@@ -196,51 +258,29 @@ function loadLaboratoryModel() {
 
           const name = child.name.toLowerCase();
 
-          // 1. AIRE ACONDICIONADO CENTRAL EN TECHO: 'model.001'
+          // Identificar Aire Acondicionado Central en Techo (model.001)
           if (child.name === 'model.001' || name.includes('model.001') || name.includes('aire')) {
             centralACMesh = child;
             child.geometry.computeBoundingBox();
             const acBox = new THREE.Box3().setFromObject(child);
             acBox.getCenter(LabState.acEmitterPos);
             LabState.acEmitterPos.y = acBox.min.y;
-            addAILog('HARDWARE', `Aire Central detectado en techo: [${child.name}]`, 'system');
-          }
-
-          // 2. EXTRACTOR EN PARED DERECHA: 'root.2' (dentro de ROOT.001)
-          if (
-            child.name === 'root.2' ||
-            child.name === 'root.012' ||
-            child.name === 'Extractor_Aspas' ||
-            name.includes('extractor') ||
-            name.includes('aspas')
-          ) {
-            setupRealExtractorBlades(child);
-          }
-
-          // 3. DISPOSITIVO IoT EN PARED: 'dispositivoiot'
-          if (
-            child.name === 'dispositivoiot' ||
-            name.includes('dispositivo') ||
-            (child.name === 'Cube' && child.geometry.attributes.position.count < 100)
-          ) {
-            setupRealIoTDevice(child);
+            addAILog('HARDWARE', `Aire Acondicionado Central en techo localizado: [${child.name}]`, 'system');
           }
         }
       });
-
-      if (!ledIndicatorMesh) {
-        createLEDIndicatorOnDevice();
-      }
 
       buildCalibratedSectors();
       createAirflowParticleSystem();
 
       setTimeout(() => {
-        loadingScreen.style.opacity = '0';
-        setTimeout(() => {
-          loadingScreen.style.display = 'none';
-          addAILog('SISTEMA', 'Modelo 3D cargado y sincronizado con telemetría.', 'system');
-        }, 600);
+        if (loadingScreen) {
+          loadingScreen.style.opacity = '0';
+          setTimeout(() => {
+            loadingScreen.style.display = 'none';
+            addAILog('SISTEMA', 'Modelo 3D y telemetría de 9 sectores sincronizados.', 'system');
+          }, 600);
+        }
       }, 400);
     },
     (xhr) => {
@@ -249,104 +289,65 @@ function loadLaboratoryModel() {
         percent = Math.round((xhr.loaded / xhr.total) * 100);
         const loadedMB = (xhr.loaded / 1048576).toFixed(1);
         const totalMB = (xhr.total / 1048576).toFixed(1);
-        progressText.innerText = `Cargando: ${loadedMB} MB / ${totalMB} MB`;
+        if (progressText) progressText.innerText = `Cargando: ${loadedMB} MB / ${totalMB} MB`;
       } else {
         const loadedMB = (xhr.loaded / 1048576).toFixed(1);
         percent = Math.min(99, Math.round((xhr.loaded / (92.5 * 1048576)) * 100));
-        progressText.innerText = `Cargando modelo: ${loadedMB} MB`;
+        if (progressText) progressText.innerText = `Cargando modelo: ${loadedMB} MB`;
       }
-      barFill.style.width = `${percent}%`;
-      percentageText.innerText = `${percent}%`;
+      if (barFill) barFill.style.width = `${percent}%`;
+      if (percentageText) percentageText.innerText = `${percent}%`;
     },
     (error) => {
       console.error('Error al cargar simulador3d.glb:', error);
-      progressText.innerText = 'Error al cargar modelo 3D.';
-      addAILog('ERROR', 'Error crítico al cargar archivo GLB.', 'alert');
+      if (progressText) progressText.innerText = 'Error al cargar modelo 3D.';
+      addAILog('ERROR', 'Error al cargar archivo GLB.', 'alert');
     }
   );
 }
 
 // ==============================================================================
-// 4. CONFIGURACIÓN DEL EXTRACTOR REAL
-// ==============================================================================
-function setupRealExtractorBlades(mesh) {
-  extractorMesh = mesh;
-
-  mesh.geometry.computeBoundingBox();
-  const bladeCenter = new THREE.Vector3();
-  mesh.geometry.boundingBox.getCenter(bladeCenter);
-
-  mesh.geometry.center();
-  mesh.position.copy(bladeCenter);
-
-  const worldPos = new THREE.Vector3();
-  mesh.getWorldPosition(worldPos);
-  LabState.extractorPos.copy(worldPos.lengthSq() > 0.01 ? worldPos : bladeCenter);
-
-  addAILog('HARDWARE', `Aspas de extractor en pared vinculadas: [${mesh.name}].`, 'system');
-}
-
-// ==============================================================================
-// 5. CONFIGURACIÓN DEL DISPOSITIVO IoT Y LED REAL
-// ==============================================================================
-function setupRealIoTDevice(mesh) {
-  iotDeviceMesh = mesh;
-  const devCenter = new THREE.Vector3();
-  mesh.geometry.computeBoundingBox();
-  mesh.geometry.boundingBox.getCenter(devCenter);
-  LabState.iotDevicePos.copy(devCenter);
-
-  createLEDIndicatorOnDevice();
-  addAILog('HARDWARE', `Sensor ambiental IoT vinculado: [${mesh.name}].`, 'system');
-}
-
-function createLEDIndicatorOnDevice() {
-  if (ledIndicatorMesh) return;
-
-  const ledGeo = new THREE.SphereGeometry(0.018, 16, 16);
-  const ledMat = new THREE.MeshStandardMaterial({
-    color: CONFIG.COLOR_LED_OK,
-    emissive: new THREE.Color(CONFIG.COLOR_LED_OK),
-    emissiveIntensity: 2.5,
-    roughness: 0.1
-  });
-
-  ledIndicatorMesh = new THREE.Mesh(ledGeo, ledMat);
-  ledIndicatorMesh.position.set(
-    LabState.iotDevicePos.x,
-    LabState.iotDevicePos.y,
-    LabState.iotDevicePos.z + 0.035
-  );
-  scene.add(ledIndicatorMesh);
-  ledPointLight.position.copy(ledIndicatorMesh.position);
-}
-
-// ==============================================================================
-// 6. MAPAS DE CALOR Y HUMEDAD VOLUMÉTRICOS
+// 4. MATRIZ 3x3 CALIBRADA: CENTRO MÁS FRÍO, MANIQUÍES MÁS HÚMEDOS
 // ==============================================================================
 function initSectorData() {
   LabState.sectors = [];
-  const baseTemps = [24.1, 24.6, 25.2, 24.3, 25.8, 26.4, 23.8, 24.9, 27.1];
-  const baseHums = [49.2, 51.0, 52.8, 50.4, 53.5, 54.2, 48.6, 51.7, 55.0];
 
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) {
-      const idx = r * 3 + c;
-      LabState.sectors.push({
-        id: `S${idx + 1}`,
-        row: r,
-        col: c,
-        temp: baseTemps[idx],
-        baseTemp: baseTemps[idx],
-        humidity: baseHums[idx],
-        baseHumidity: baseHums[idx],
-        mesh: null,
-        edges: null,
-        labelSprite: null,
-        bounds: null
-      });
-    }
-  }
+  const sectorConfigs = [
+    // Fila 0: Zona Posterior (Camillas y Maniquíes de Alta Fidelidad)
+    { id: 'S1', name: 'Cama Pediatría', row: 0, col: 0, baseTemp: 24.5, baseHum: 60.0, manikinWeight: 1.35, isManikinZone: true, isACCenter: false },
+    { id: 'S2', name: 'UCI Adulto (Foco Principal)', row: 0, col: 1, baseTemp: 24.0, baseHum: 64.5, manikinWeight: 1.60, isManikinZone: true, isACCenter: false },
+    { id: 'S3', name: 'Cama Materno-Infantil', row: 0, col: 2, baseTemp: 24.8, baseHum: 61.0, manikinWeight: 1.35, isManikinZone: true, isACCenter: false },
+
+    // Fila 1: Zona Central (Cruce de la Sala & Descarga de Climatización)
+    { id: 'S4', name: 'Pasillo Lateral Oeste', row: 1, col: 0, baseTemp: 23.2, baseHum: 50.5, manikinWeight: 0.85, isManikinZone: false, isACCenter: false },
+    { id: 'S5', name: 'Centro Sala (Descarga AC Central)', row: 1, col: 1, baseTemp: 20.5, baseHum: 45.0, manikinWeight: 0.35, isManikinZone: false, isACCenter: true },
+    { id: 'S6', name: 'Pasillo Lateral Este', row: 1, col: 2, baseTemp: 23.5, baseHum: 52.0, manikinWeight: 0.90, isManikinZone: false, isACCenter: false },
+
+    // Fila 2: Zona Frontal (Mesa Quirúrgica, Accesos y Monitores)
+    { id: 'S7', name: 'Acceso Clínico / Lavamanos', row: 2, col: 0, baseTemp: 25.2, baseHum: 53.5, manikinWeight: 0.80, isManikinZone: false, isACCenter: false },
+    { id: 'S8', name: 'Camilla Quirúrgica / RCP', row: 2, col: 1, baseTemp: 23.6, baseHum: 58.0, manikinWeight: 1.20, isManikinZone: true, isACCenter: false },
+    { id: 'S9', name: 'Estación Monitores & Equipos', row: 2, col: 2, baseTemp: 26.2, baseHum: 52.5, manikinWeight: 0.75, isManikinZone: false, isACCenter: false }
+  ];
+
+  sectorConfigs.forEach((cfg) => {
+    LabState.sectors.push({
+      id: cfg.id,
+      name: cfg.name,
+      row: cfg.row,
+      col: cfg.col,
+      temp: cfg.baseTemp,
+      baseTemp: cfg.baseTemp,
+      humidity: cfg.baseHum,
+      baseHumidity: cfg.baseHum,
+      manikinWeight: cfg.manikinWeight,
+      isManikinZone: cfg.isManikinZone,
+      isACCenter: cfg.isACCenter,
+      mesh: null,
+      edges: null,
+      labelSprite: null,
+      bounds: null
+    });
+  });
 }
 
 function buildCalibratedSectors() {
@@ -365,7 +366,7 @@ function buildCalibratedSectors() {
   const { min, size } = LabState.labBounds;
   const sectorW = size.x / 3;
   const sectorD = size.z / 3;
-  const sectorH = Math.min(0.38, size.y * 0.42);
+  const sectorH = Math.min(CONFIG.SECTOR_HEIGHT, size.y * 0.42);
   const floorY = min.y + 0.01;
 
   LabState.sectors.forEach((sec) => {
@@ -384,13 +385,16 @@ function buildCalibratedSectors() {
     );
 
     const geo = new THREE.BoxGeometry(sectorW * 0.96, sectorH, sectorD * 0.96);
+    // Material con opacidad alta y menos transparencia para máxima visibilidad
     const mat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
+      emissive: new THREE.Color(0x38bdf8),
+      emissiveIntensity: 0.40,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.70,
       depthWrite: false,
-      roughness: 0.3,
-      metalness: 0.1
+      roughness: 0.25,
+      metalness: 0.05
     });
 
     const mesh = new THREE.Mesh(geo, mat);
@@ -400,7 +404,7 @@ function buildCalibratedSectors() {
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.35
+      opacity: 0.95
     });
     const edges = new THREE.LineSegments(edgeGeo, edgeMat);
     mesh.add(edges);
@@ -409,7 +413,8 @@ function buildCalibratedSectors() {
     sec.edges = edges;
     sectorGroup.add(mesh);
 
-    const labelSprite = createSectorLabelSprite(sec.id);
+    // Etiqueta 3D legible
+    const labelSprite = createSectorLabelSprite(sec.id, sec.isACCenter, sec.isManikinZone);
     labelSprite.position.set(centerX, floorY + sectorH + 0.05, centerZ);
     labelsGroup.add(labelSprite);
     sec.labelSprite = labelSprite;
@@ -417,34 +422,56 @@ function buildCalibratedSectors() {
 
   updateSectorsVisualization();
   renderUIMiniMap();
+  evaluateLabSensors();
 }
 
-function createSectorLabelSprite(text) {
+function createSectorLabelSprite(text, isACCenter, isManikinZone) {
   const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 64;
+  canvas.width = 160;
+  canvas.height = 70;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = 'rgba(13, 19, 33, 0.85)';
-  ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-  ctx.lineWidth = 2;
-  ctx.roundRect(10, 10, 108, 44, 8);
+  let borderColor = 'rgba(56, 189, 248, 0.65)';
+  let tagColor = '#38bdf8';
+  let tagSubtext = 'Sector IoT';
+
+  if (isACCenter) {
+    borderColor = 'rgba(56, 189, 248, 1.0)';
+    tagColor = '#06b6d4';
+    tagSubtext = 'Descarga AC';
+  } else if (isManikinZone) {
+    borderColor = 'rgba(244, 63, 94, 0.95)';
+    tagColor = '#fb7185';
+    tagSubtext = 'Maniquíes';
+  }
+
+  ctx.fillStyle = 'rgba(13, 19, 33, 0.92)';
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 3;
+  ctx.roundRect(8, 8, 144, 54, 10);
   ctx.fill();
   ctx.stroke();
 
   ctx.font = 'bold 22px monospace';
-  ctx.fillStyle = '#38bdf8';
+  ctx.fillStyle = tagColor;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 64, 32);
+  ctx.fillText(text, 80, 26);
+
+  ctx.font = '11px sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(tagSubtext, 80, 48);
 
   const texture = new THREE.CanvasTexture(canvas);
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.75 });
+  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.90 });
   const sprite = new THREE.Sprite(spriteMat);
-  sprite.scale.set(0.18, 0.09, 1.0);
+  sprite.scale.set(0.20, 0.09, 1.0);
   return sprite;
 }
 
+/**
+ * Visualización 3D con ALTA VISIBILIDAD y MENOS TRANSPARENCIA (Punto 4)
+ */
 function updateSectorsVisualization() {
   if (LabState.viewMode === 'real') {
     sectorGroup.visible = false;
@@ -458,34 +485,53 @@ function updateSectorsVisualization() {
   LabState.sectors.forEach((sec) => {
     if (!sec.mesh) return;
     let targetColor = new THREE.Color();
+    let opacity = 0.72;
+    let emissiveIntensity = 0.50;
 
     if (LabState.viewMode === 'temp') {
-      const t = Math.min(1, Math.max(0, (sec.temp - 23.0) / (30.0 - 23.0)));
+      // Escala térmica rica: Azul frío (20°C en centro S5) -> Ámbar (24.5°C) -> Rojo vivo (28°C)
+      const t = Math.min(1, Math.max(0, (sec.temp - 20.0) / (28.0 - 20.0)));
       if (t < 0.5) {
-        targetColor.lerpColors(new THREE.Color(0x2563eb), new THREE.Color(0xf59e0b), t * 2);
+        targetColor.lerpColors(new THREE.Color(0x0284c7), new THREE.Color(0xf59e0b), t * 2);
       } else {
         targetColor.lerpColors(new THREE.Color(0xf59e0b), new THREE.Color(0xef4444), (t - 0.5) * 2);
       }
-      sec.mesh.material.opacity = 0.18;
+      opacity = sec.isACCenter ? 0.78 : 0.68;
+      emissiveIntensity = 0.45;
     } else if (LabState.viewMode === 'humidity') {
-      const h = Math.min(1, Math.max(0, (sec.humidity - 40.0) / (85.0 - 40.0)));
-      if (sec.humidity < CONFIG.CRITICAL_HUMIDITY) {
-        targetColor.lerpColors(new THREE.Color(0x06b6d4), new THREE.Color(0x8b5cf6), h);
-        sec.mesh.material.opacity = 0.18;
+      // Escala higrométrica de alta saturación y contraste
+      if (sec.humidity < 55.0) {
+        // 40% a 55%: Cian eléctrico vibrante
+        const t = Math.min(1, Math.max(0, (sec.humidity - 40.0) / 15.0));
+        targetColor.lerpColors(new THREE.Color(0x00d2ff), new THREE.Color(0x0284c7), t);
+        opacity = 0.68;
+        emissiveIntensity = 0.40;
+      } else if (sec.humidity < CONFIG.CRITICAL_HUMIDITY) {
+        // 55% a 65%: Púrpura / Violeta real
+        const t = Math.min(1, (sec.humidity - 55.0) / 10.0);
+        targetColor.lerpColors(new THREE.Color(0x0284c7), new THREE.Color(0x9333ea), t);
+        opacity = 0.75;
+        emissiveIntensity = 0.55;
       } else {
-        const critT = Math.min(1, (sec.humidity - CONFIG.CRITICAL_HUMIDITY) / (85.0 - CONFIG.CRITICAL_HUMIDITY));
-        targetColor.lerpColors(new THREE.Color(0xd946ef), new THREE.Color(0xef4444), critT);
-        sec.mesh.material.opacity = 0.28;
+        // >65%: Magenta neón y rojo coral brillante en los focos de maniquíes (S1, S2, S3, S8)
+        const t = Math.min(1, (sec.humidity - CONFIG.CRITICAL_HUMIDITY) / 18.0);
+        targetColor.lerpColors(new THREE.Color(0xf43f5e), new THREE.Color(0xef4444), t);
+        opacity = 0.84; // Mucho menos transparencia, altísima visibilidad
+        emissiveIntensity = 0.75; // Resplandor propio visible en 3D
       }
     }
 
     sec.mesh.material.color.copy(targetColor);
+    sec.mesh.material.emissive.copy(targetColor);
+    sec.mesh.material.emissiveIntensity = emissiveIntensity;
+    sec.mesh.material.opacity = opacity;
     sec.edges.material.color.copy(targetColor);
+    sec.edges.material.opacity = 0.95;
   });
 }
 
 // ==============================================================================
-// 7. SISTEMA DE PARTÍCULAS MEJORADO (ALTA VISIBILIDAD Y FLUJO REAL)
+// 5. SISTEMA DE PARTÍCULAS VOLUMÉTRICAS CON DESVANECIMIENTO Y ENTRADA SUAVE (Punto 1)
 // ==============================================================================
 function createAirflowParticleSystem() {
   if (particleSystem) {
@@ -500,28 +546,33 @@ function createAirflowParticleSystem() {
   const colors = new Float32Array(count * 3);
   const velocities = new Float32Array(count * 3);
   const lifetimes = new Float32Array(count);
+  const phaseSeeds = new Float32Array(count);
 
   for (let i = 0; i < count; i++) {
-    resetParticleAtAC(i, positions, velocities, lifetimes, true);
-    // Color cian luminoso inicial
-    colors[i * 3] = 0.25;
-    colors[i * 3 + 1] = 0.90;
+    if (i < count * 0.40) {
+      resetParticleAtAC(i, positions, velocities, lifetimes, false);
+    } else {
+      resetParticleInRoom(i, positions, velocities, lifetimes);
+    }
+
+    phaseSeeds[i] = Math.random() * Math.PI * 2;
+
+    colors[i * 3] = 0.22;
+    colors[i * 3 + 1] = 0.85;
     colors[i * 3 + 2] = 1.0;
   }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.userData = { velocities, lifetimes };
+  geometry.userData = { velocities, lifetimes, phaseSeeds };
 
-  // Textura radial luminosa con núcleo brillante
   const texture = createLuminousRadialTexture();
 
-  // Partículas con tamaño 0.048 y AdditiveBlending para destacar bajo la luz
   const material = new THREE.PointsMaterial({
-    size: 0.048,
+    size: 0.046,
     map: texture,
     transparent: true,
-    opacity: 0.75,
+    opacity: LabState.currentParticleOpacity,
     vertexColors: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false
@@ -531,36 +582,50 @@ function createAirflowParticleSystem() {
   scene.add(particleSystem);
 }
 
-// Reubica la partícula en la boca de salida del Aire Central en el techo
-function resetParticleAtAC(index, positions, velocities, lifetimes, randomAge = false) {
+// Emisión en la boca del difusor del AC central en el techo
+function resetParticleAtAC(index, positions, velocities, lifetimes, isInitialBurst = false) {
   const acPos = LabState.acEmitterPos;
   const idx = index * 3;
 
-  positions[idx] = acPos.x + (Math.random() - 0.5) * 0.48;
-  positions[idx + 1] = acPos.y - 0.02 - (randomAge ? Math.random() * 0.7 : 0);
-  positions[idx + 2] = acPos.z + (Math.random() - 0.5) * 0.38;
+  positions[idx] = acPos.x + (Math.random() - 0.5) * 0.45;
+  positions[idx + 1] = acPos.y - 0.02 - (isInitialBurst ? Math.random() * 0.12 : Math.random() * 0.35);
+  positions[idx + 2] = acPos.z + (Math.random() - 0.5) * 0.35;
 
-  // Caída convectiva y dispersión en abanico
-  velocities[idx] = (Math.random() - 0.5) * 0.14;
-  velocities[idx + 1] = -0.09 - Math.random() * 0.12;
-  velocities[idx + 2] = (Math.random() - 0.5) * 0.14;
+  const spread = isInitialBurst ? 0.22 : 0.14;
+  velocities[idx] = (Math.random() - 0.5) * spread;
+  velocities[idx + 1] = isInitialBurst ? (-0.25 - Math.random() * 0.25) : (-0.09 - Math.random() * 0.12);
+  velocities[idx + 2] = (Math.random() - 0.5) * spread;
 
-  lifetimes[index] = randomAge ? Math.random() * 8.0 : 0.0;
+  lifetimes[index] = isInitialBurst ? 0.0 : Math.random() * 12.0;
 }
 
-// Textura de partícula luminiscente de alta definición
+// Distribución volumétrica por todo el espacio
+function resetParticleInRoom(index, positions, velocities, lifetimes) {
+  const { min, size } = LabState.labBounds;
+  const idx = index * 3;
+
+  positions[idx] = min.x + 0.08 + Math.random() * (size.x - 0.16);
+  positions[idx + 1] = min.y + 0.05 + Math.random() * (size.y - 0.12);
+  positions[idx + 2] = min.z + 0.08 + Math.random() * (size.z - 0.16);
+
+  velocities[idx] = (Math.random() - 0.5) * 0.10;
+  velocities[idx + 1] = (Math.random() - 0.5) * 0.06;
+  velocities[idx + 2] = (Math.random() - 0.5) * 0.10;
+
+  lifetimes[index] = Math.random() * 12.0;
+}
+
 function createLuminousRadialTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
 
-  // Gradiente radial con centro blanco intenso y halo cian
   const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 31);
   gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-  gradient.addColorStop(0.2, 'rgba(165, 243, 252, 0.95)');
-  gradient.addColorStop(0.55, 'rgba(56, 189, 248, 0.65)');
-  gradient.addColorStop(0.85, 'rgba(2, 132, 199, 0.20)');
+  gradient.addColorStop(0.25, 'rgba(165, 243, 252, 0.95)');
+  gradient.addColorStop(0.60, 'rgba(56, 189, 248, 0.60)');
+  gradient.addColorStop(0.88, 'rgba(2, 132, 199, 0.15)');
   gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
   ctx.fillStyle = gradient;
@@ -571,7 +636,11 @@ function createLuminousRadialTexture() {
   return tex;
 }
 
-// Física de flujo: Aire central -> Sala -> Succión en Extractor
+/**
+ * Animación física de partículas con:
+ * - Desvanecimiento progresivo cuando el aire se apaga (simulación de alza activa)
+ * - Ráfaga suave de entrada directamente desde el difusor del AC al reencenderse
+ */
 function updateParticles(delta) {
   if (!particleSystem) return;
 
@@ -579,20 +648,40 @@ function updateParticles(delta) {
   const colors = particleSystem.geometry.attributes.color.array;
   const velocities = particleSystem.geometry.userData.velocities;
   const lifetimes = particleSystem.geometry.userData.lifetimes;
+  const phaseSeeds = particleSystem.geometry.userData.phaseSeeds;
   const count = CONFIG.PARTICLE_COUNT;
   const { min, max } = LabState.labBounds;
-  const extPos = LabState.extractorPos;
+  const acPos = LabState.acEmitterPos;
+  const elapsedTime = clock.getElapsedTime();
 
+  // 1. MANEJO DE OPACIDAD Y ESTADO DEL AIRE ACONDICIONADO
+  if (!LabState.acIsOn) {
+    // AC Apagado (Simulación de alza en curso): Desvanecer suavemente hasta desaparecer
+    LabState.currentParticleOpacity = THREE.MathUtils.lerp(LabState.currentParticleOpacity, 0.0, delta * 1.8);
+    particleSystem.material.opacity = LabState.currentParticleOpacity;
+
+    if (LabState.currentParticleOpacity < 0.008) {
+      particleSystem.visible = false;
+      return; // Salir para optimizar render si ya es invisible
+    }
+  } else {
+    // AC Encendido: Asegurar visibilidad y fade-in
+    particleSystem.visible = true;
+    const targetOpacity = LabState.maxHumidity > CONFIG.CRITICAL_HUMIDITY ? 0.88 : 0.80;
+    LabState.currentParticleOpacity = THREE.MathUtils.lerp(LabState.currentParticleOpacity, targetOpacity, delta * 2.2);
+    particleSystem.material.opacity = LabState.currentParticleOpacity;
+
+    // Control de animación de ráfaga de entrada desde el difusor
+    if (LabState.acEntranceActive) {
+      LabState.acEntranceTimer += delta;
+      if (LabState.acEntranceTimer > 3.0) {
+        LabState.acEntranceActive = false;
+      }
+    }
+  }
+
+  // 2. FÍSICA Y MOVIMIENTO DE PARTÍCULAS
   const isAlert = LabState.maxHumidity > CONFIG.CRITICAL_HUMIDITY;
-  const humFactor = Math.min(1, Math.max(0, (LabState.maxHumidity - 40) / (85 - 40)));
-
-  // Color cian luminoso a baja humedad; rojo/coral intenso al superar el umbral
-  const colR = isAlert ? 1.0 : THREE.MathUtils.lerp(0.20, 0.75, humFactor);
-  const colG = isAlert ? 0.22 : THREE.MathUtils.lerp(0.88, 0.45, humFactor);
-  const colB = isAlert ? 0.30 : THREE.MathUtils.lerp(1.0, 0.80, humFactor);
-
-  // Mayor opacidad para máxima visibilidad
-  particleSystem.material.opacity = isAlert ? 0.88 : THREE.MathUtils.lerp(0.68, 0.82, humFactor);
 
   for (let i = 0; i < count; i++) {
     const px = i * 3;
@@ -601,261 +690,464 @@ function updateParticles(delta) {
 
     lifetimes[i] += delta;
 
+    if (LabState.acIsOn) {
+      // Distancia al centro de descarga de aire
+      const dxCenter = positions[px] - acPos.x;
+      const dzCenter = positions[pz] - acPos.z;
+      const distCenter = Math.sqrt(dxCenter * dxCenter + dzCenter * dzCenter);
+
+      // Flujo activo desde el AC central en el techo
+      if (distCenter < 0.65 && positions[py] > min.y + 0.20) {
+        velocities[py] -= (LabState.acEntranceActive ? 0.22 : 0.10) * delta;
+        velocities[px] += (dxCenter / (distCenter + 0.05)) * 0.08 * delta;
+        velocities[pz] += (dzCenter / (distCenter + 0.05)) * 0.08 * delta;
+      }
+
+      // Cerca del suelo y sobre las camillas: dispersión laminar
+      if (positions[py] < min.y + 0.32) {
+        velocities[py] = Math.max(0.01, velocities[py] + 0.06 * delta);
+      } else if (distCenter > 0.70 && positions[py] < max.y - 0.15) {
+        velocities[py] += 0.03 * delta;
+      }
+
+      // Turbulencia armónica
+      const phase = phaseSeeds[i] + elapsedTime * 0.7;
+      velocities[px] += Math.sin(phase + positions[pz] * 2.5) * 0.010 * delta;
+      velocities[pz] += Math.cos(phase + positions[px] * 2.5) * 0.010 * delta;
+
+      velocities[px] *= 0.988;
+      velocities[py] = Math.max(-0.25, Math.min(0.18, velocities[py]));
+      velocities[pz] *= 0.988;
+    } else {
+      // Con AC apagado: las corrientes decaen suavemente
+      velocities[px] *= Math.max(0, 1.0 - 0.8 * delta);
+      velocities[py] *= Math.max(0, 1.0 - 0.8 * delta);
+      velocities[pz] *= Math.max(0, 1.0 - 0.8 * delta);
+    }
+
     positions[px] += velocities[px] * delta;
     positions[py] += velocities[py] * delta;
     positions[pz] += velocities[pz] * delta;
 
-    // Dispersión suave por la zona inferior de la sala
-    if (positions[py] < min.y + 0.35) {
-      velocities[px] += (Math.random() - 0.5) * 0.05 * delta;
-      velocities[pz] += (Math.random() - 0.5) * 0.05 * delta;
-      velocities[py] = Math.max(-0.02, velocities[py] + 0.03 * delta);
+    // Rebote suave en límites
+    if (positions[px] < min.x + 0.05) { positions[px] = min.x + 0.06; velocities[px] = Math.abs(velocities[px]) * 0.8; }
+    if (positions[px] > max.x - 0.05) { positions[px] = max.x - 0.06; velocities[px] = -Math.abs(velocities[px]) * 0.8; }
+    if (positions[pz] < min.z + 0.05) { positions[pz] = min.z + 0.06; velocities[pz] = Math.abs(velocities[pz]) * 0.8; }
+    if (positions[pz] > max.z - 0.05) { positions[pz] = max.z - 0.06; velocities[pz] = -Math.abs(velocities[pz]) * 0.8; }
+
+    if (positions[py] > max.y - 0.04) {
+      positions[py] = max.y - 0.05;
+      velocities[py] = -Math.abs(velocities[py]) * 0.6;
+    }
+    if (positions[py] < min.y + 0.04) {
+      positions[py] = min.y + 0.05;
+      velocities[py] = Math.abs(velocities[py]) * 0.6;
     }
 
-    // SUCCIÓN POR EL EXTRACTOR REAL
-    if (LabState.extractorActive && LabState.extractorCurrentRPM > 100) {
-      const dx = extPos.x - positions[px];
-      const dy = extPos.y - positions[py];
-      const dz = extPos.z - positions[pz];
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-      if (dist < 2.4) {
-        const pullPower = (1.0 - dist / 2.4) * (LabState.extractorCurrentRPM / CONFIG.EXTRACTOR_MAX_RPM) * 4.2;
-        positions[px] += (dx / dist) * pullPower * delta;
-        positions[py] += (dy / dist) * pullPower * delta;
-        positions[pz] += (dz / dist) * pullPower * delta;
-
-        // Si cruza la rejilla del extractor: SALE DE LA SALA
-        if (dist < 0.065) {
-          resetParticleAtAC(i, positions, velocities, lifetimes, false);
-          continue;
-        }
+    // Reciclaje continuo cuando el aire está activo
+    if (LabState.acIsOn && lifetimes[i] > 18.0) {
+      if (Math.random() < 0.40) {
+        resetParticleAtAC(i, positions, velocities, lifetimes, false);
+      } else {
+        resetParticleInRoom(i, positions, velocities, lifetimes);
       }
     }
 
-    if (
-      lifetimes[i] > 10.0 ||
-      positions[py] < min.y + 0.03 ||
-      positions[px] < min.x ||
-      positions[px] > max.x ||
-      positions[pz] < min.z ||
-      positions[pz] > max.z
-    ) {
-      resetParticleAtAC(i, positions, velocities, lifetimes, false);
+    // Color cromático reactivo a humedad
+    const isNearManikins = positions[pz] < -0.25;
+    if (isAlert) {
+      if (isNearManikins) {
+        colors[px] = 1.0;
+        colors[py] = 0.20;
+        colors[pz] = 0.35;
+      } else {
+        colors[px] = 0.95;
+        colors[py] = 0.45;
+        colors[pz] = 0.70;
+      }
+    } else {
+      colors[px] = 0.18;
+      colors[py] = 0.88;
+      colors[pz] = 1.0;
     }
-
-    colors[px] = colR;
-    colors[py] = colG;
-    colors[pz] = colB;
   }
 
   particleSystem.geometry.attributes.position.needsUpdate = true;
   particleSystem.geometry.attributes.color.needsUpdate = true;
 }
 
+// Activa la ráfaga de entrada desde el difusor del AC
+function triggerACEntranceAnimation() {
+  LabState.acIsOn = true;
+  LabState.acEntranceActive = true;
+  LabState.acEntranceTimer = 0.0;
+  LabState.currentParticleOpacity = 0.10;
+
+  if (particleSystem) {
+    particleSystem.visible = true;
+    const positions = particleSystem.geometry.attributes.position.array;
+    const velocities = particleSystem.geometry.userData.velocities;
+    const lifetimes = particleSystem.geometry.userData.lifetimes;
+    const count = CONFIG.PARTICLE_COUNT;
+
+    for (let i = 0; i < count; i++) {
+      if (i < count * 0.65) {
+        resetParticleAtAC(i, positions, velocities, lifetimes, true);
+      }
+    }
+    particleSystem.geometry.attributes.position.needsUpdate = true;
+  }
+
+  addAILog('AC-CENTRAL', '🌬️ Inyección de aire frío iniciada: ráfaga laminar descendente desde el techo.', 'ok');
+}
+
 // ==============================================================================
-// 8. CONTROL PREVENTIVO AMBIENTAL Y ACTUADORES
+// 6. SISTEMA DE TAREAS PREVENTIVAS DE LA IA CON APARICIÓN PROGRESIVA (Punto 3)
+// ==============================================================================
+function initAITasks() {
+  LabState.aiTasks = AI_TASK_DEFINITIONS.map(d => ({ ...d }));
+  renderAITasksUI();
+}
+
+function renderAITasksUI(highlightTaskId = null) {
+  const container = document.getElementById('ai-tasks-container');
+  const badgeProgress = document.getElementById('tasks-progress-badge');
+  const btnApplyAll = document.getElementById('btn-apply-all-tasks');
+  if (!container) return;
+
+  const unlockedTasks = LabState.aiTasks.filter(t => t.unlocked);
+  const completedCount = unlockedTasks.filter(t => t.completed).length;
+
+  if (badgeProgress) {
+    if (unlockedTasks.length === 0) {
+      badgeProgress.innerText = '0/4 Activas';
+      badgeProgress.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/10';
+    } else {
+      badgeProgress.innerText = `${completedCount}/${unlockedTasks.length} Hechas (${unlockedTasks.length}/4)`;
+      badgeProgress.className = completedCount === unlockedTasks.length
+        ? 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+        : 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30';
+    }
+  }
+
+  if (btnApplyAll) {
+    btnApplyAll.style.display = unlockedTasks.length > 0 ? 'flex' : 'none';
+  }
+
+  container.innerHTML = '';
+
+  // Estado inicial: Sin tareas aún activadas por umbral
+  if (unlockedTasks.length === 0) {
+    container.innerHTML = `
+      <div class="p-3.5 rounded-lg border border-dashed border-cyan-500/20 bg-cyan-500/5 text-center">
+        <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+          <i class="fa-solid fa-shield-halved animate-pulse"></i>
+        </div>
+        <div class="text-xs font-semibold text-slate-200">Monitoreo Predictivo Activo</div>
+        <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">
+          Sin alertas activas. Al apagar el AC central y ascender la humedad/temperatura, la IA emitirá hasta 4 recomendaciones preventivas con notificación flotante.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  // Renderizar las tareas desbloqueadas
+  unlockedTasks.forEach((task) => {
+    const isNewLanding = task.id === highlightTaskId;
+    const card = document.createElement('div');
+    card.className = `bms-card p-2.5 rounded-lg border transition-all ${isNewLanding ? 'animate-task-land ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/20' : ''} ${
+      task.completed
+        ? 'border-emerald-500/30 bg-emerald-500/5'
+        : 'border-white/10 hover:border-cyan-500/40 bg-slate-900/60'
+    }`;
+
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded ${
+              task.completed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+            }">${task.category}</span>
+            <span class="text-[10px] font-mono text-cyan-400 font-semibold">-${task.impactHum}% HR</span>
+          </div>
+          <h4 class="text-xs font-semibold text-slate-200 mt-1">${task.title}</h4>
+          <p class="text-[10px] text-slate-400 mt-0.5 leading-snug">${task.desc}</p>
+        </div>
+        <button
+          data-task-id="${task.id}"
+          class="btn-execute-task shrink-0 py-1.5 px-2.5 rounded-md text-[10px] font-mono font-semibold transition-all ${
+            task.completed
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default'
+              : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-500/40 shadow-sm active:scale-95'
+          }">
+          ${task.completed ? '<i class="fa-solid fa-check"></i> Hecha' : '<i class="fa-solid fa-play text-[9px]"></i> Ejecutar'}
+        </button>
+      </div>
+    `;
+
+    const btn = card.querySelector('.btn-execute-task');
+    if (btn && !task.completed) {
+      btn.addEventListener('click', () => executeAITask(task.id));
+    }
+
+    container.appendChild(card);
+  });
+}
+
+/**
+ * Notificación Flotante de Salto para Nuevas Tareas IA (Punto 3)
+ */
+function showFloatingTaskToast(task) {
+  const toast = document.getElementById('floating-task-toast');
+  const toastInner = document.getElementById('toast-card-inner');
+  const titleEl = document.getElementById('toast-task-title');
+  const descEl = document.getElementById('toast-task-desc');
+  const impactEl = document.getElementById('toast-task-impact');
+  const btnView = document.getElementById('btn-toast-view');
+  if (!toast) return;
+
+  if (titleEl) titleEl.innerText = task.title;
+  if (descEl) descEl.innerText = task.desc;
+  if (impactEl) impactEl.innerText = `-${task.impactHum}% HR`;
+
+  if (toastTimeout) clearTimeout(toastTimeout);
+
+  toast.classList.remove('hidden');
+  if (toastInner) {
+    toastInner.classList.remove('animate-toast-fly');
+    toastInner.classList.add('animate-toast-jump');
+  }
+
+  const dismissToast = () => {
+    if (toastInner) {
+      toastInner.classList.remove('animate-toast-jump');
+      toastInner.classList.add('animate-toast-fly');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 380);
+    } else {
+      toast.classList.add('hidden');
+    }
+  };
+
+  if (btnView) {
+    btnView.onclick = () => {
+      dismissToast();
+      const tasksSec = document.getElementById('content-sec-aitasks');
+      if (tasksSec) tasksSec.style.display = 'block';
+      const rightSidebar = document.getElementById('right-sidebar');
+      if (rightSidebar) rightSidebar.scrollTop = 220;
+    };
+  }
+
+  toastTimeout = setTimeout(() => {
+    dismissToast();
+  }, 3600);
+}
+
+function unlockAITask(task) {
+  task.unlocked = true;
+  showFloatingTaskToast(task);
+  renderAITasksUI(task.id);
+  addAILog('IA-RECOMENDACIÓN', `🔔 Alerta por umbral climático. Nueva tarea preventiva: "${task.title}" (-${task.impactHum}% HR).`, 'action');
+}
+
+function executeAITask(taskId) {
+  const task = LabState.aiTasks.find(t => t.id === taskId);
+  if (!task || task.completed || task.inProgress) return;
+
+  task.inProgress = true;
+  addAILog('IA-PREVENCIÓN', `Iniciando tarea: "${task.title}"...`, 'action');
+
+  let step = 0;
+  const totalSteps = 12;
+  const humStep = task.impactHum / totalSteps;
+  const tempStep = task.impactTemp / totalSteps;
+
+  const interval = setInterval(() => {
+    step++;
+
+    LabState.sectors.forEach((sec) => {
+      const isTarget = task.targetSectors.includes('all') || task.targetSectors.includes(sec.id);
+      if (isTarget) {
+        sec.humidity = Math.max(CONFIG.TARGET_HUMIDITY - 2.0, sec.humidity - humStep);
+        sec.temp = Math.max(CONFIG.OPTIMAL_TEMP, sec.temp - tempStep);
+      }
+    });
+
+    evaluateLabSensors();
+
+    if (step >= totalSteps) {
+      clearInterval(interval);
+      task.completed = true;
+      task.inProgress = false;
+      renderAITasksUI();
+      addAILog('IA-PREVENCIÓN', `✓ Tarea completada: "${task.title}". Reducción de humedad lograda (-${task.impactHum}% HR).`, 'ok');
+      updateLifecycleChartData();
+    }
+  }, 100);
+}
+
+function applyAllAITasks() {
+  const pendingTasks = LabState.aiTasks.filter(t => t.unlocked && !t.completed);
+  if (pendingTasks.length === 0) {
+    addAILog('IA-PREVENCIÓN', 'No hay tareas activas pendientes por aplicar.', 'system');
+    return;
+  }
+
+  addAILog('IA-PREVENCIÓN', '⚡ Ejecutando plan integral de mitigación preventiva...', 'action');
+  pendingTasks.forEach((task, idx) => {
+    setTimeout(() => {
+      executeAITask(task.id);
+    }, idx * 300);
+  });
+}
+
+// ==============================================================================
+// 7. SIMULACIÓN DE ALZA DE HUMEDAD Y TEMPERATURA
 // ==============================================================================
 let aiLoopTimer = 0;
 
 function updateAILogic(delta) {
   aiLoopTimer += delta;
 
-  // Protocolo Nocturno: Humedad asciende progresivamente
-  if (LabState.isNightSimActive) {
+  // Alza microclimática progresiva si la simulación está activa (AC apagado)
+  if (LabState.isSimulationRunning) {
     LabState.sectors.forEach((sec) => {
-      const deltaHum = (0.35 + Math.random() * 0.20) * delta;
-      sec.humidity = Math.min(85.0, sec.humidity + deltaHum);
-      sec.temp = Math.min(29.5, sec.temp + 0.04 * delta);
+      const humRate = (0.28 + Math.random() * 0.18) * sec.manikinWeight * LabState.simSpeed;
+      sec.humidity = Math.min(88.0, sec.humidity + humRate * delta);
+
+      const tempRate = (sec.isACCenter ? 0.012 : (0.035 + Math.random() * 0.025)) * LabState.simSpeed;
+      sec.temp = Math.min(29.5, sec.temp + tempRate * delta);
+    });
+
+    // Verificación de desbloqueo progresivo de tareas preventivas por umbral (Máximo 4)
+    LabState.aiTasks.forEach((task) => {
+      if (!task.unlocked) {
+        const isHumMet = LabState.maxHumidity >= task.minHumTrigger;
+        const isTempMet = LabState.avgTemp >= task.minTempTrigger;
+        const isManikinSpecial = task.id === 'task-manikin-purge' && LabState.manikinsAvgHumidity >= 64.0;
+
+        if (isHumMet || isTempMet || isManikinSpecial) {
+          unlockAITask(task);
+        }
+      }
     });
   }
 
-  // Mitigación por Extracción Activa
-  if (LabState.extractorActive) {
-    LabState.sectors.forEach((sec) => {
-      if (sec.humidity > CONFIG.TARGET_HUMIDITY) {
-        const deltaExtract = (0.75 + Math.random() * 0.30) * delta;
-        sec.humidity = Math.max(CONFIG.TARGET_HUMIDITY, sec.humidity - deltaExtract);
-      }
-      if (sec.temp > 24.2) {
-        sec.temp = Math.max(24.2, sec.temp - 0.08 * delta);
-      }
-    });
-  }
-
-  // Evaluación periódica
   if (aiLoopTimer > 0.2) {
     aiLoopTimer = 0;
     evaluateLabSensors();
   }
-
-  updateExtractorPhysics(delta);
 }
 
 function evaluateLabSensors() {
   let sumTemp = 0;
   let sumHum = 0;
   let maxHum = 0;
+  let maxTemp = 0;
+  let manikinsHumSum = 0;
+  let manikinsCount = 0;
 
   LabState.sectors.forEach((sec) => {
     sumTemp += sec.temp;
     sumHum += sec.humidity;
     if (sec.humidity > maxHum) maxHum = sec.humidity;
+    if (sec.temp > maxTemp) maxTemp = sec.temp;
+
+    if (sec.isManikinZone) {
+      manikinsHumSum += sec.humidity;
+      manikinsCount++;
+    }
+
+    if (sec.isACCenter) {
+      LabState.centerTemp = sec.temp;
+    }
   });
 
   LabState.avgTemp = sumTemp / LabState.sectors.length;
   LabState.avgHumidity = sumHum / LabState.sectors.length;
   LabState.maxHumidity = maxHum;
-
-  if (LabState.maxHumidity >= CONFIG.CRITICAL_HUMIDITY && !LabState.extractorActive) {
-    triggerAIEmergencyActivation();
-  }
-
-  if (LabState.extractorActive && LabState.maxHumidity <= CONFIG.TARGET_HUMIDITY) {
-    triggerAINormalization();
-  }
+  LabState.maxTemp = maxTemp;
+  LabState.manikinsAvgHumidity = manikinsHumSum / (manikinsCount || 1);
 
   updateTelemetryUI();
   updateSectorsVisualization();
   renderUIMiniMap();
 }
 
-function triggerAIEmergencyActivation() {
-  LabState.extractorActive = true;
-  LabState.ledStatus = 'ALERT';
-
-  setSensorLEDColor(CONFIG.COLOR_LED_ALERT, 3.5);
-
-  addAILog('CONTROL-HVAC', `⚠️ ALERTA: Humedad crítica (${LabState.maxHumidity.toFixed(1)}% > ${CONFIG.CRITICAL_HUMIDITY}%).`, 'alert');
-  addAILog('ACTUADOR', `Activando extractor centrífugo en pared @ ${CONFIG.EXTRACTOR_MAX_RPM} RPM.`, 'action');
-  addAILog('SISTEMA', `LED de sensor conmuta a MODO_CRÍTICO (0xef4444).`, 'system');
-  addAILog('CONTROL-HVAC', `Ciclo de deshumidificación preventiva en curso hacia ${CONFIG.TARGET_HUMIDITY}% HR.`, 'action');
-}
-
-function triggerAINormalization() {
-  LabState.extractorActive = false;
-  LabState.isNightSimActive = false;
-  LabState.ledStatus = 'OK';
-
-  setSensorLEDColor(CONFIG.COLOR_LED_OK, 2.0);
-
-  addAILog('CONTROL-HVAC', `✅ CONDICIÓN NOMINAL: Humedad normalizada a ${LabState.maxHumidity.toFixed(1)}% (<= 50.0%).`, 'ok');
-  addAILog('ACTUADOR', `Extractor de pared entrando en reposo (0 RPM).`, 'action');
-  addAILog('SISTEMA', `LED de sensor restaurado a MODO_SEGURO (0x10b981).`, 'system');
-  addAILog('CONTROL-HVAC', `Ambiente clínico seguro. Supervisión continua nominal.`, 'system');
-}
-
-function setSensorLEDColor(hexColor, intensity) {
-  if (ledIndicatorMesh && ledIndicatorMesh.material) {
-    ledIndicatorMesh.material.color.setHex(hexColor);
-    ledIndicatorMesh.material.emissive.setHex(hexColor);
-    ledIndicatorMesh.material.emissiveIntensity = intensity;
-  }
-  if (ledPointLight) {
-    ledPointLight.color.setHex(hexColor);
-    ledPointLight.intensity = intensity * 0.7;
-  }
-}
-
-function updateExtractorPhysics(delta) {
-  const targetRPM = LabState.extractorActive ? CONFIG.EXTRACTOR_MAX_RPM : 0;
-  const rpmRate = LabState.extractorActive ? 1500 : 900;
-
-  if (LabState.extractorCurrentRPM < targetRPM) {
-    LabState.extractorCurrentRPM = Math.min(targetRPM, LabState.extractorCurrentRPM + rpmRate * delta);
-  } else if (LabState.extractorCurrentRPM > targetRPM) {
-    LabState.extractorCurrentRPM = Math.max(targetRPM, LabState.extractorCurrentRPM - rpmRate * delta);
-  }
-
-  LabState.extractorSpeed = (LabState.extractorCurrentRPM / CONFIG.EXTRACTOR_MAX_RPM) * CONFIG.EXTRACTOR_MAX_RAD;
-
-  if (extractorMesh && LabState.extractorCurrentRPM > 0.1) {
-    extractorMesh.rotation.x += LabState.extractorSpeed * delta;
-  }
-}
-
 // ==============================================================================
-// 9. TELEMETRÍA Y ELEMENTOS DE INTERFAZ
+// 8. TELEMETRÍA Y ELEMENTOS DE INTERFAZ
 // ==============================================================================
 function updateTelemetryUI() {
-  const tempEl = document.getElementById('val-temp-avg');
-  const humEl = document.getElementById('val-hum-max');
+  const tempAvgEl = document.getElementById('val-temp-avg');
+  const tempCenterEl = document.getElementById('val-temp-center');
+  const tempMaxEl = document.getElementById('val-temp-max');
+  const humMaxEl = document.getElementById('val-hum-max');
+  const humManikinsEl = document.getElementById('val-hum-manikins');
   const barTemp = document.getElementById('bar-temp');
   const barHum = document.getElementById('bar-hum');
-
-  if (tempEl) tempEl.innerText = LabState.avgTemp.toFixed(1);
-  if (humEl) {
-    humEl.innerText = LabState.maxHumidity.toFixed(1);
-    if (LabState.maxHumidity > CONFIG.CRITICAL_HUMIDITY) {
-      humEl.className = 'text-2xl font-bold font-mono text-rose-500 animate-pulse';
-    } else {
-      humEl.className = 'text-2xl font-bold font-mono text-cyan-400';
-    }
-  }
-
-  if (barTemp) {
-    const tempPct = Math.min(100, Math.max(0, ((LabState.avgTemp - 20) / (32 - 20)) * 100));
-    barTemp.style.width = `${tempPct}%`;
-  }
-  if (barHum) {
-    const humPct = Math.min(100, Math.max(0, ((LabState.maxHumidity - 30) / (90 - 30)) * 100));
-    barHum.style.width = `${humPct}%`;
-  }
-
-  // Actuador Extractor
-  const rpmTxt = document.getElementById('status-extractor-rpm');
-  const badgeExt = document.getElementById('badge-extractor');
-  const iconExt = document.getElementById('icon-extractor');
-  const iconExtContainer = document.getElementById('icon-extractor-container');
-
-  if (rpmTxt) {
-    rpmTxt.innerText = `${Math.round(LabState.extractorCurrentRPM)} RPM • ${LabState.extractorActive ? 'Extrayendo' : 'Inactivo'}`;
-  }
-  if (badgeExt) {
-    if (LabState.extractorActive) {
-      badgeExt.innerText = 'ON';
-      badgeExt.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
-      if (iconExtContainer) iconExtContainer.className = 'w-7 h-7 rounded-md bg-cyan-500/20 text-cyan-400 flex items-center justify-center';
-      if (iconExt) iconExt.className = 'fa-solid fa-fan text-xs animate-fan';
-    } else {
-      badgeExt.innerText = 'OFF';
-      badgeExt.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-800 text-slate-400';
-      if (iconExtContainer) iconExtContainer.className = 'w-7 h-7 rounded-md bg-slate-800 text-slate-400 flex items-center justify-center';
-      if (iconExt) iconExt.className = 'fa-solid fa-fan text-xs';
-    }
-  }
-
-  // Sensor LED
-  const badgeLed = document.getElementById('badge-sensor-led');
-  const badgeAlert = document.getElementById('badge-sensor-alert');
-  const ledTxt = document.getElementById('status-sensor-led-txt');
+  const humBadge = document.getElementById('hum-alert-badge');
   const sysStatusDot = document.getElementById('system-status-dot');
   const sysStatusText = document.getElementById('system-status-text');
 
-  if (LabState.ledStatus === 'ALERT') {
-    if (badgeLed) badgeLed.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 led-dot-alert ml-2';
-    if (badgeAlert) {
-      badgeAlert.innerText = 'CRÍTICO';
-      badgeAlert.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-rose-500/20 text-rose-400 border border-rose-500/40';
+  if (tempAvgEl) tempAvgEl.innerText = LabState.avgTemp.toFixed(1);
+  if (tempCenterEl) tempCenterEl.innerText = `${LabState.centerTemp.toFixed(1)}°`;
+  if (tempMaxEl) tempMaxEl.innerText = `${LabState.maxTemp.toFixed(1)}°`;
+
+  if (humMaxEl) {
+    humMaxEl.innerText = LabState.maxHumidity.toFixed(1);
+    if (LabState.maxHumidity >= CONFIG.CRITICAL_HUMIDITY) {
+      humMaxEl.className = 'text-2xl font-bold font-mono text-rose-500 animate-pulse';
+    } else {
+      humMaxEl.className = 'text-2xl font-bold font-mono text-cyan-400';
     }
-    if (ledTxt) {
-      ledTxt.innerText = 'ALERTA (0xef4444)';
-      ledTxt.className = 'text-[10px] font-mono text-rose-400';
+  }
+
+  if (humManikinsEl) {
+    humManikinsEl.innerText = `${LabState.manikinsAvgHumidity.toFixed(1)}%`;
+    humManikinsEl.className = LabState.manikinsAvgHumidity >= CONFIG.CRITICAL_HUMIDITY
+      ? 'text-rose-400 font-bold'
+      : 'text-amber-300 font-semibold';
+  }
+
+  if (barTemp) {
+    const tempPct = Math.min(100, Math.max(0, ((LabState.avgTemp - 20) / (30 - 20)) * 100));
+    barTemp.style.width = `${tempPct}%`;
+  }
+  if (barHum) {
+    const humPct = Math.min(100, Math.max(0, ((LabState.maxHumidity - 35) / (85 - 35)) * 100));
+    barHum.style.width = `${humPct}%`;
+  }
+
+  const isCritical = LabState.maxHumidity >= CONFIG.CRITICAL_HUMIDITY;
+  const isElevated = LabState.maxHumidity > 58.0;
+
+  if (humBadge) {
+    if (isCritical) {
+      humBadge.innerText = 'Riesgo Crítico';
+      humBadge.className = 'text-rose-400 font-semibold animate-pulse';
+    } else if (isElevated) {
+      humBadge.innerText = 'Humedad Elevada';
+      humBadge.className = 'text-amber-400 font-semibold';
+    } else {
+      humBadge.innerText = 'Condición Normal';
+      humBadge.className = 'text-emerald-400 font-semibold';
     }
-    if (sysStatusDot) sysStatusDot.className = 'w-2 h-2 rounded-full bg-rose-500 led-dot-alert';
-    if (sysStatusText) sysStatusText.innerText = 'ESTADO: ALERTA CRÍTICA';
-  } else {
-    if (badgeLed) badgeLed.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 led-dot-ok ml-2';
-    if (badgeAlert) {
-      badgeAlert.innerText = 'SEGURO';
-      badgeAlert.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/25';
+  }
+
+  if (sysStatusDot && sysStatusText) {
+    if (isCritical) {
+      sysStatusDot.className = 'w-2 h-2 rounded-full bg-rose-500 status-dot-alert';
+      sysStatusText.innerText = 'ESTADO: RIESGO DE HUMEDAD EN MANIQUÍES';
+    } else if (LabState.isSimulationRunning) {
+      sysStatusDot.className = 'w-2 h-2 rounded-full bg-amber-400 status-dot-mitigation';
+      sysStatusText.innerText = 'ESTADO: ALZA AMBIENTAL (AC APAGADO)';
+    } else {
+      sysStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 status-dot-ok';
+      sysStatusText.innerText = 'ESTADO: AMBIENTE CONTROLADO';
     }
-    if (ledTxt) {
-      ledTxt.innerText = 'NORMAL (0x10b981)';
-      ledTxt.className = 'text-[10px] font-mono text-emerald-400';
-    }
-    if (sysStatusDot) sysStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 led-dot-ok';
-    if (sysStatusText) sysStatusText.innerText = 'ESTADO: NOMINAL';
   }
 }
 
@@ -869,21 +1161,26 @@ function renderUIMiniMap() {
     cell.className = 'sector-cell p-1.5 rounded bg-slate-900 border border-white/5 flex flex-col justify-between cursor-pointer';
 
     if (LabState.viewMode === 'temp') {
-      const t = Math.min(1, Math.max(0, (sec.temp - 23.0) / 7.0));
-      cell.style.borderColor = t > 0.5 ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.5)';
-      cell.style.background = t > 0.5 ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)';
+      const t = Math.min(1, Math.max(0, (sec.temp - 20.0) / 8.0));
+      cell.style.borderColor = t > 0.5 ? 'rgba(239,68,68,0.7)' : 'rgba(2,132,199,0.7)';
+      cell.style.background = t > 0.5 ? 'rgba(239,68,68,0.25)' : 'rgba(2,132,199,0.25)';
     } else if (LabState.viewMode === 'humidity') {
-      const isCrit = sec.humidity > CONFIG.CRITICAL_HUMIDITY;
-      cell.style.borderColor = isCrit ? 'rgba(239,68,68,0.7)' : 'rgba(6,182,212,0.4)';
-      cell.style.background = isCrit ? 'rgba(239,68,68,0.22)' : 'rgba(6,182,212,0.12)';
+      const isCrit = sec.humidity >= CONFIG.CRITICAL_HUMIDITY;
+      cell.style.borderColor = isCrit ? 'rgba(244,63,94,0.9)' : 'rgba(6,182,212,0.6)';
+      cell.style.background = isCrit ? 'rgba(244,63,94,0.30)' : 'rgba(6,182,212,0.20)';
     }
+
+    let subTag = sec.isACCenter ? 'AC' : (sec.isManikinZone ? 'Maniquí' : '');
 
     cell.innerHTML = `
       <div class="flex justify-between items-center text-[9px] font-mono">
-        <span class="font-bold text-slate-300">${sec.id}</span>
-        <span class="${sec.humidity > CONFIG.CRITICAL_HUMIDITY ? 'text-rose-400 font-bold' : 'text-slate-400'}">${sec.humidity.toFixed(0)}%</span>
+        <span class="font-bold ${sec.isACCenter ? 'text-cyan-300' : 'text-slate-300'}">${sec.id}</span>
+        <span class="${sec.humidity >= CONFIG.CRITICAL_HUMIDITY ? 'text-rose-400 font-bold' : 'text-slate-300'}">${sec.humidity.toFixed(0)}%</span>
       </div>
-      <div class="text-[9px] font-mono text-slate-400 text-right mt-0.5">${sec.temp.toFixed(1)}°</div>
+      <div class="flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-0.5">
+        <span class="${sec.isACCenter ? 'text-cyan-400 font-semibold' : (sec.isManikinZone ? 'text-rose-300' : 'text-slate-500')}">${subTag}</span>
+        <span>${sec.temp.toFixed(1)}°</span>
+      </div>
     `;
 
     cell.addEventListener('click', () => {
@@ -899,7 +1196,7 @@ function focusCameraOnSector(sec) {
   const center = new THREE.Vector3();
   sec.bounds.getCenter(center);
   controls.target.set(center.x, center.y, center.z);
-  addAILog('OPERADOR', `Enfocando inspección en sector ${sec.id}: ${sec.temp.toFixed(1)}°C / ${sec.humidity.toFixed(1)}%`, 'telemetry');
+  addAILog('OPERADOR', `Enfocando inspección en sector ${sec.id} (${sec.name}): ${sec.temp.toFixed(1)}°C / ${sec.humidity.toFixed(1)}% HR`, 'action');
 }
 
 function addAILog(source, message, type = 'ai') {
@@ -933,6 +1230,158 @@ function addAILog(source, message, type = 'ai') {
 }
 
 // ==============================================================================
+// 9. GRÁFICAS DE CICLO DE VIDA ÚTIL CON CHART.JS
+// ==============================================================================
+function initLifecycleChart() {
+  const canvas = document.getElementById('lifecycleChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const yearsLabels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10 Años'];
+  const preventiveData = [100, 98, 95, 93, 90, 88, 85, 82, 80, 77, 74];
+  const failureData = [100, 74, 46, 22, 5, 0, 0, 0, 0, 0, 0];
+
+  const ctx = canvas.getContext('2d');
+
+  const gradPreventive = ctx.createLinearGradient(0, 0, 0, 160);
+  gradPreventive.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+  gradPreventive.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+  const gradFailure = ctx.createLinearGradient(0, 0, 0, 160);
+  gradFailure.addColorStop(0, 'rgba(239, 68, 68, 0.35)');
+  gradFailure.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
+
+  lifecycleChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: yearsLabels,
+      datasets: [
+        {
+          label: 'Con Tareas de Prevención IA',
+          data: preventiveData,
+          borderColor: '#10b981',
+          backgroundColor: gradPreventive,
+          borderWidth: 2.2,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 2.5,
+          pointBackgroundColor: '#10b981'
+        },
+        {
+          label: 'Sin Prevención (Crítico >65% HR)',
+          data: failureData,
+          borderColor: '#ef4444',
+          backgroundColor: gradFailure,
+          borderWidth: 2.2,
+          borderDash: [4, 4],
+          fill: true,
+          tension: 0.35,
+          pointRadius: 2.5,
+          pointBackgroundColor: '#ef4444'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            boxWidth: 10,
+            color: '#94a3b8',
+            font: { size: 9, family: 'Inter' }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(13, 19, 33, 0.95)',
+          titleColor: '#38bdf8',
+          bodyColor: '#e2e8f0',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+          borderWidth: 1,
+          padding: 8,
+          callbacks: {
+            label: function(context) {
+              return ` ${context.dataset.label}: ${context.parsed.y}% Integridad`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { color: '#64748b', font: { size: 8, family: 'JetBrains Mono' } }
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#64748b',
+            font: { size: 8, family: 'JetBrains Mono' },
+            callback: value => `${value}%`
+          }
+        }
+      }
+    }
+  });
+}
+
+function updateLifecycleChartMode(mode) {
+  currentChartMode = mode;
+  if (!lifecycleChartInstance) return;
+
+  const btnBoth = document.getElementById('btn-chart-both');
+  const btnPrev = document.getElementById('btn-chart-preventive');
+  const btnFail = document.getElementById('btn-chart-failure');
+
+  [btnBoth, btnPrev, btnFail].forEach(b => {
+    if (b) b.className = 'py-1 px-1.5 rounded transition-all text-slate-400 hover:text-white hover:bg-white/5';
+  });
+
+  if (mode === 'both') {
+    if (btnBoth) btnBoth.className = 'py-1 px-1.5 rounded transition-all bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
+    lifecycleChartInstance.data.datasets[0].hidden = false;
+    lifecycleChartInstance.data.datasets[1].hidden = false;
+  } else if (mode === 'preventive') {
+    if (btnPrev) btnPrev.className = 'py-1 px-1.5 rounded transition-all bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+    lifecycleChartInstance.data.datasets[0].hidden = false;
+    lifecycleChartInstance.data.datasets[1].hidden = true;
+  } else if (mode === 'failure') {
+    if (btnFail) btnFail.className = 'py-1 px-1.5 rounded transition-all bg-rose-500/20 text-rose-300 border border-rose-500/30';
+    lifecycleChartInstance.data.datasets[0].hidden = true;
+    lifecycleChartInstance.data.datasets[1].hidden = false;
+  }
+
+  lifecycleChartInstance.update();
+}
+
+function updateLifecycleChartData() {
+  if (!lifecycleChartInstance) return;
+  const completedCount = LabState.aiTasks.filter(t => t.completed).length;
+  const bonus = completedCount * 1.5;
+
+  lifecycleChartInstance.data.datasets[0].data = [
+    100,
+    Math.min(100, 98 + bonus * 0.2),
+    Math.min(100, 95 + bonus * 0.4),
+    Math.min(100, 93 + bonus * 0.6),
+    Math.min(100, 90 + bonus * 0.8),
+    Math.min(100, 88 + bonus * 1.0),
+    Math.min(100, 85 + bonus * 1.2),
+    Math.min(100, 82 + bonus * 1.4),
+    Math.min(100, 80 + bonus * 1.6),
+    Math.min(100, 77 + bonus * 1.8),
+    Math.min(100, 74 + bonus * 2.0)
+  ];
+  lifecycleChartInstance.update();
+}
+
+// ==============================================================================
 // 10. CONTROL DE ACORDEONES Y COLAPSO DE PANELES LATERALES
 // ==============================================================================
 function setupSidebarControls() {
@@ -949,7 +1398,6 @@ function setupSidebarControls() {
   let isLeftClosed = false;
   let isRightClosed = false;
 
-  // Toggle Panel Izquierdo
   const setLeftClosed = (closed) => {
     isLeftClosed = closed;
     if (closed) {
@@ -962,7 +1410,6 @@ function setupSidebarControls() {
     updateImmersiveButtonState();
   };
 
-  // Toggle Panel Derecho
   const setRightClosed = (closed) => {
     isRightClosed = closed;
     if (closed) {
@@ -992,7 +1439,6 @@ function setupSidebarControls() {
   if (btnCloseRight) btnCloseRight.addEventListener('click', () => setRightClosed(true));
   if (tabReopenRight) tabReopenRight.addEventListener('click', () => setRightClosed(false));
 
-  // Botón maestro: Modo Inmersivo (Oculta o muestra ambos paneles a la vez)
   if (btnImmersive) {
     btnImmersive.addEventListener('click', () => {
       const anyOpen = !isLeftClosed || !isRightClosed;
@@ -1006,7 +1452,7 @@ function setupSidebarControls() {
     });
   }
 
-  // --- ACORDEONES DESPLEGABLES POR SECCIÓN ---
+  // --- ACORDEONES DESPLEGABLES ---
   const registerAccordion = (headerId, contentId) => {
     const header = document.getElementById(headerId);
     const content = document.getElementById(contentId);
@@ -1026,24 +1472,23 @@ function setupSidebarControls() {
     });
   };
 
-  // Secciones del panel izquierdo
   registerAccordion('header-sec-telemetry', 'content-sec-telemetry');
-  registerAccordion('header-sec-actuators', 'content-sec-actuators');
   registerAccordion('header-sec-sectors', 'content-sec-sectors');
+  registerAccordion('header-sec-lifecycle', 'content-sec-lifecycle');
 
-  // Secciones del panel derecho
   registerAccordion('header-sec-viewmodes', 'content-sec-viewmodes');
   registerAccordion('header-sec-simulation', 'content-sec-simulation');
+  registerAccordion('header-sec-aitasks', 'content-sec-aitasks');
 }
 
 // ==============================================================================
-// 11. CONTROLADORES DE EVENTOS AMBIENTALES
+// 11. CONTROLADORES DE EVENTOS
 // ==============================================================================
 function setupEventListeners() {
+  // Modos de Visualización 3D
   const btnReal = document.getElementById('btn-mode-real');
   const btnTemp = document.getElementById('btn-mode-temp');
   const btnHum = document.getElementById('btn-mode-hum');
-  const activeModeTag = document.getElementById('active-mode-tag');
 
   const setViewMode = (mode) => {
     LabState.viewMode = mode;
@@ -1053,16 +1498,13 @@ function setupEventListeners() {
 
     if (mode === 'real') {
       if (btnReal) btnReal.className = 'py-1.5 px-2 rounded-md transition-all text-center bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm text-[11px]';
-      if (activeModeTag) activeModeTag.innerText = 'Modo Físico';
-      addAILog('VISTA', 'Capa física activa. Sin mapas superpuestos.', 'system');
+      addAILog('VISTA', 'Capa física activa. Visualización directa de la sala.', 'system');
     } else if (mode === 'temp') {
       if (btnTemp) btnTemp.className = 'py-1.5 px-2 rounded-md transition-all text-center bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm text-[11px]';
-      if (activeModeTag) activeModeTag.innerText = 'Mapa Térmico';
-      addAILog('VISTA', 'Mapa térmico activado (23°C - 30°C).', 'system');
+      addAILog('VISTA', 'Mapa térmico activado (Alta visibilidad). Centro S5 muestra menor temperatura por AC.', 'system');
     } else if (mode === 'humidity') {
       if (btnHum) btnHum.className = 'py-1.5 px-2 rounded-md transition-all text-center bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm text-[11px]';
-      if (activeModeTag) activeModeTag.innerText = 'Mapa Humedad';
-      addAILog('VISTA', 'Mapa de humedad activado (40% - 85%).', 'system');
+      addAILog('VISTA', 'Mapa de humedad activado (Alta visibilidad y brillo). Foco en maniquíes S1, S2, S3.', 'system');
     }
 
     updateSectorsVisualization();
@@ -1073,53 +1515,88 @@ function setupEventListeners() {
   if (btnTemp) btnTemp.addEventListener('click', () => setViewMode('temp'));
   if (btnHum) btnHum.addEventListener('click', () => setViewMode('humidity'));
 
-  // Botón Simular Noche
-  const btnNight = document.getElementById('btn-sim-night');
-  if (btnNight) {
-    btnNight.addEventListener('click', () => {
-      LabState.isNightSimActive = !LabState.isNightSimActive;
-      if (LabState.isNightSimActive) {
-        btnNight.classList.add('ring-2', 'ring-amber-400');
-        addAILog('SIMULACIÓN', '🌙 Protocolo Nocturno iniciado: Climatización en reposo. Incrementando humedad en sala.', 'action');
+  // Botón Toggle Simulación (Apagar AC / Encender AC)
+  const btnToggleSim = document.getElementById('btn-toggle-sim');
+  const textSimToggle = document.getElementById('text-sim-toggle');
+  const iconSimToggle = document.getElementById('icon-sim-toggle');
+  const badgeSimStatus = document.getElementById('badge-sim-status');
+
+  if (btnToggleSim) {
+    btnToggleSim.addEventListener('click', () => {
+      LabState.isSimulationRunning = !LabState.isSimulationRunning;
+
+      if (LabState.isSimulationRunning) {
+        // Al apagar el AC: cesa el flujo de partículas y se desvanecen (Punto 1)
+        LabState.acIsOn = false;
+        if (textSimToggle) textSimToggle.innerText = 'Encender AC Central (Detener Alza)';
+        if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-power-off text-rose-400';
+        if (badgeSimStatus) {
+          badgeSimStatus.innerText = 'AC APAGADO (+HR)';
+          badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse';
+        }
+        btnToggleSim.classList.add('ring-2', 'ring-rose-500/50');
+        addAILog('AC-CENTRAL', '❄️ AC central apagado: cesa el flujo de aire y las partículas se desvanecen. Se inicia alza de HR y temperatura.', 'alert');
       } else {
-        btnNight.classList.remove('ring-2', 'ring-amber-400');
-        addAILog('SIMULACIÓN', 'Protocolo Nocturno detenido por el operador.', 'system');
+        // Al encender el AC: ráfaga de entrada directamente desde el difusor en techo
+        triggerACEntranceAnimation();
+        if (textSimToggle) textSimToggle.innerText = 'Simular Alza (Apagar AC Central)';
+        if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-wind text-cyan-400';
+        if (badgeSimStatus) {
+          badgeSimStatus.innerText = 'AC ACTIVO';
+          badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        }
+        btnToggleSim.classList.remove('ring-2', 'ring-rose-500/50');
+        addAILog('SIMULACIÓN', 'Simulación de alza pausada. AC central reanudando climatización.', 'system');
       }
     });
   }
 
-  // Botón Forzar Extractor
-  const btnForce = document.getElementById('btn-force-extractor');
-  if (btnForce) {
-    btnForce.addEventListener('click', () => {
-      LabState.extractorActive = !LabState.extractorActive;
-      if (LabState.extractorActive) {
-        addAILog('OPERADOR', '⚡ Forzado manual de extractor activado.', 'action');
-      } else {
-        addAILog('OPERADOR', 'Extractor detenido manualmente.', 'system');
-      }
-    });
-  }
-
-  // Botón Restablecer
+  // Botón Restablecer Condiciones
   const btnReset = document.getElementById('btn-reset-env');
   if (btnReset) {
     btnReset.addEventListener('click', () => {
-      LabState.isNightSimActive = false;
-      LabState.extractorActive = false;
-      LabState.ledStatus = 'OK';
-      if (btnNight) btnNight.classList.remove('ring-2', 'ring-amber-400');
+      LabState.isSimulationRunning = false;
+      triggerACEntranceAnimation();
 
+      if (textSimToggle) textSimToggle.innerText = 'Simular Alza (Apagar AC Central)';
+      if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-power-off text-cyan-400';
+      if (badgeSimStatus) {
+        badgeSimStatus.innerText = 'AC ACTIVO';
+        badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      }
+      if (btnToggleSim) btnToggleSim.classList.remove('ring-2', 'ring-rose-500/50');
+
+      // Restablecer sectores a valores basales
       LabState.sectors.forEach((sec) => {
         sec.humidity = sec.baseHumidity;
         sec.temp = sec.baseTemp;
       });
 
-      setSensorLEDColor(CONFIG.COLOR_LED_OK, 2.0);
+      // Reiniciar tareas preventivas (volver a estado bloqueado inicial)
+      initAITasks();
+      updateLifecycleChartData();
+
       evaluateLabSensors();
-      addAILog('SISTEMA', '🔄 Restablecidas condiciones ambientales nominales.', 'system');
+      addAILog('SISTEMA', '↺ Condiciones ambientales nominales restablecidas. Tareas reiniciadas.', 'system');
     });
   }
+
+  // Botón Aplicar Todas las Tareas Preventivas
+  const btnApplyAll = document.getElementById('btn-apply-all-tasks');
+  if (btnApplyAll) {
+    btnApplyAll.addEventListener('click', () => {
+      applyAllAITasks();
+    });
+  }
+
+  // Selectores de Modo de Gráfica de Vida Útil
+  const btnChartBoth = document.getElementById('btn-chart-both');
+  const btnChartPrev = document.getElementById('btn-chart-preventive');
+  const btnChartFail = document.getElementById('btn-chart-failure');
+
+  if (btnChartBoth) btnChartBoth.addEventListener('click', () => updateLifecycleChartMode('both'));
+  if (btnChartPrev) btnChartPrev.addEventListener('click', () => updateLifecycleChartMode('preventive'));
+  if (btnChartFail) btnChartFail.addEventListener('click', () => updateLifecycleChartMode('failure'));
 
   // Botón Limpiar Terminal
   const btnClearTerm = document.getElementById('btn-clear-terminal');

@@ -16,6 +16,9 @@
   <!-- FontAwesome Icons CDN -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
+  <!-- Chart.js CDN (Para gráficas de ciclo de vida útil) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <!-- Three.js r128 & Addons -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -38,7 +41,7 @@
 
     /* Professional Clinical Dark Panels */
     .bms-panel {
-      background: rgba(13, 19, 33, 0.88);
+      background: rgba(13, 19, 33, 0.92);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border: 1px solid rgba(255, 255, 255, 0.09);
@@ -84,40 +87,47 @@
       pointer-events: none;
     }
 
-    /* Scrollbars */
+    /* High-Visibility Clinical Scrollbars */
+    .custom-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(56, 189, 248, 0.70) rgba(15, 23, 42, 0.90);
+    }
+
     .custom-scroll::-webkit-scrollbar {
-      width: 5px;
+      width: 7px;
+      height: 7px;
     }
     .custom-scroll::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(13, 19, 33, 0.90);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .custom-scroll::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.18);
-      border-radius: 3px;
+      background: linear-gradient(180deg, #38bdf8, #0284c7);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.45);
     }
     .custom-scroll::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.32);
+      background: linear-gradient(180deg, #7dd3fc, #06b6d4);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.80);
     }
 
     /* Status indicators */
-    .led-dot-ok {
+    .status-dot-ok {
       box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
     }
-    .led-dot-alert {
+    .status-dot-alert {
       box-shadow: 0 0 12px rgba(239, 68, 68, 0.95);
       animation: alert-blink 0.7s infinite alternate;
+    }
+    .status-dot-mitigation {
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.95);
+      animation: alert-blink 0.9s infinite alternate;
     }
     @keyframes alert-blink {
       from { opacity: 0.5; filter: brightness(1.0); }
       to { opacity: 1.0; filter: brightness(1.5); }
-    }
-
-    @keyframes fan-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .animate-fan {
-      animation: fan-spin 0.45s linear infinite;
     }
 
     /* Sector cell */
@@ -127,6 +137,63 @@
     .sector-cell:hover {
       filter: brightness(1.2);
       transform: scale(1.03);
+    }
+
+    /* Animations for AI Tasks Floating Toast & Card Landing */
+    @keyframes toast-jump-in {
+      0% {
+        transform: translate(-50%, -70px) scale(0.6);
+        opacity: 0;
+      }
+      50% {
+        transform: translate(-50%, 15px) scale(1.06);
+        opacity: 1;
+      }
+      75% {
+        transform: translate(-50%, -4px) scale(0.98);
+      }
+      100% {
+        transform: translate(-50%, 0) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes toast-fly-out {
+      0% {
+        transform: translate(-50%, 0) scale(1);
+        opacity: 1;
+      }
+      100% {
+        transform: translate(25vw, -30px) scale(0.4);
+        opacity: 0;
+      }
+    }
+
+    .animate-toast-jump {
+      animation: toast-jump-in 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    .animate-toast-fly {
+      animation: toast-fly-out 0.40s ease-in forwards;
+    }
+
+    @keyframes task-card-land {
+      0% {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.92);
+      }
+      65% {
+        opacity: 1;
+        transform: translateY(4px) scale(1.02);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .animate-task-land {
+      animation: task-card-land 0.40s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
   </style>
 </head>
@@ -142,7 +209,7 @@
         <i class="fa-solid fa-hospital-user text-2xl"></i>
       </div>
       <h2 class="text-base font-bold tracking-tight text-white mb-1">Laboratorio de Simulación Clínica</h2>
-      <p class="text-xs text-slate-400 mb-5 font-mono">Cargando gemelo digital 3D y telemetría de sensores...</p>
+      <p class="text-xs text-slate-400 mb-5 font-mono">Cargando gemelo digital 3D y telemetría de microclima...</p>
 
       <div class="w-full bg-slate-800 rounded-full h-2 mb-3 overflow-hidden p-0.5 border border-white/5">
         <div id="loading-bar-fill" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-200" style="width: 0%"></div>
@@ -166,7 +233,7 @@
           Laboratorio de Simulación Clínica
           <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10">BMS / IoT</span>
         </h1>
-        <p class="text-[10px] text-slate-400 font-mono">Supervisión Climática y Mitigación Preventiva de Humedad</p>
+        <p class="text-[10px] text-slate-400 font-mono">Supervisión Microclimática • Tareas Preventivas de IA • Ciclo de Vida Útil</p>
       </div>
     </div>
 
@@ -180,8 +247,8 @@
 
       <!-- System Status -->
       <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-white/5 font-mono text-[11px]">
-        <span id="system-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 led-dot-ok"></span>
-        <span id="system-status-text" class="text-slate-300">ESTADO: NOMINAL</span>
+        <span id="system-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 status-dot-ok"></span>
+        <span id="system-status-text" class="text-slate-300">ESTADO: AMBIENTE CONTROLADO</span>
       </div>
 
       <!-- Live Clock -->
@@ -191,11 +258,34 @@
     </div>
   </header>
 
+  <!-- NOTIFICACIÓN FLOTANTE DE SALTO: NUEVA RECOMENDACIÓN IA -->
+  <div id="floating-task-toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none hidden max-w-md w-[calc(100vw-32px)]">
+    <div id="toast-card-inner" class="pointer-events-auto p-3.5 rounded-xl bms-panel border-2 border-amber-400/80 shadow-[0_0_30px_rgba(245,158,11,0.35)] flex items-center justify-between gap-3 bg-slate-950/95 backdrop-blur-2xl animate-toast-jump">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 text-lg shrink-0 shadow-inner">
+          <i class="fa-solid fa-wand-magic-sparkles animate-pulse"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30">¡Nueva Tarea Preventiva IA!</span>
+            <span id="toast-task-impact" class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">-12.0% HR</span>
+          </div>
+          <div id="toast-task-title" class="text-xs font-bold text-white mt-1">Purga y Secado en Simuladores de Pacientes</div>
+          <div id="toast-task-desc" class="text-[10px] text-slate-400 mt-0.5 line-clamp-1">Condensación detectada en maniquíes clínicos...</div>
+        </div>
+      </div>
+      <button id="btn-toast-view" class="shrink-0 py-1.5 px-3 rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-bold text-[10px] font-mono transition-all shadow active:scale-95 flex items-center gap-1">
+        <span>Ver</span>
+        <i class="fa-solid fa-arrow-right text-[9px]"></i>
+      </button>
+    </div>
+  </div>
+
   <!-- QUICK ACCESS FLOATING TABS (Aparecen cuando los paneles se esconden) -->
   <div class="absolute inset-y-0 left-3 z-30 flex items-center pointer-events-none">
     <button id="tab-reopen-left" class="pointer-events-auto hidden px-3 py-2 rounded-r-xl bms-panel text-xs font-mono text-cyan-400 hover:text-white border-l-0 shadow-xl transition-all flex items-center gap-2">
-      <i class="fa-solid fa-chart-simple"></i>
-      <span>Telemetría</span>
+      <i class="fa-solid fa-chart-line"></i>
+      <span>Telemetría & Gráficas</span>
       <i class="fa-solid fa-chevron-right text-[10px]"></i>
     </button>
   </div>
@@ -203,36 +293,36 @@
   <div class="absolute inset-y-0 right-3 z-30 flex items-center pointer-events-none">
     <button id="tab-reopen-right" class="pointer-events-auto hidden px-3 py-2 rounded-l-xl bms-panel text-xs font-mono text-cyan-400 hover:text-white border-r-0 shadow-xl transition-all flex items-center gap-2">
       <i class="fa-solid fa-chevron-left text-[10px]"></i>
-      <span>Controles</span>
-      <i class="fa-solid fa-sliders"></i>
+      <span>Tareas de IA & Control</span>
+      <i class="fa-solid fa-robot"></i>
     </button>
   </div>
 
-  <!-- MAIN HUD GRID (PANELES LATERALES COLAPSABLES) -->
-  <main class="absolute inset-0 pointer-events-none z-10 flex justify-between p-3 pt-20 pb-3">
+  <!-- MAIN HUD GRID (PANELES LATERALES CON DESPLAZAMIENTO FLUIDO) -->
+  <main class="absolute inset-0 pointer-events-none z-10 flex justify-between p-3 pt-20 pb-3 overflow-hidden">
     
     <!-- ========================================================================= -->
-    <!-- PANEL IZQUIERDO: TELEMETRÍA Y SECTORES AMBIENTALES                        -->
+    <!-- PANEL IZQUIERDO: TELEMETRÍA, SECTORES Y CICLO DE VIDA ÚTIL               -->
     <!-- ========================================================================= -->
-    <aside id="left-sidebar" class="sidebar-panel w-80 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll pr-1">
+    <aside id="left-sidebar" class="sidebar-panel w-84 sm:w-96 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll h-full max-h-full min-h-0 pr-1.5 pb-12">
       
-      <!-- Barra superior del panel izquierdo (Permite ocultar todo el panel) -->
-      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs">
+      <!-- Barra superior del panel izquierdo -->
+      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs shrink-0">
         <span class="font-semibold text-slate-300 flex items-center gap-1.5 text-[11px]">
-          <i class="fa-solid fa-gauge text-cyan-400"></i> Panel de Monitoreo
+          <i class="fa-solid fa-gauge text-cyan-400"></i> Supervisión Ambiental & Vida Útil
         </span>
         <button id="btn-close-left-sidebar" title="Ocultar panel izquierdo" class="text-slate-400 hover:text-white p-1 rounded transition-colors text-xs">
           <i class="fa-solid fa-chevron-left"></i>
         </button>
       </div>
 
-      <!-- SECCIÓN 1: TELEMETRÍA GLOBAL (COLAPSABLE) -->
-      <div class="rounded-xl bms-panel overflow-hidden">
+      <!-- SECCIÓN 1: TELEMETRÍA AMBIENTAL -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-telemetry" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
             <i class="fa-solid fa-temperature-three-quarters text-cyan-400 text-xs"></i>
-            Telemetría Ambiental
+            Telemetría Microclimática
           </span>
           <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
         </button>
@@ -246,12 +336,16 @@
                 <span>Temp. Media</span>
                 <i class="fa-solid fa-temperature-half text-amber-400 text-xs"></i>
               </div>
-              <div class="mt-1.5 flex items-baseline gap-1">
-                <span id="val-temp-avg" class="text-2xl font-bold font-mono text-white">24.5</span>
+              <div class="mt-1 flex items-baseline gap-1">
+                <span id="val-temp-avg" class="text-2xl font-bold font-mono text-white">23.8</span>
                 <span class="text-xs text-slate-400 font-mono">°C</span>
               </div>
-              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                <div id="bar-temp" class="bg-gradient-to-r from-blue-400 to-amber-500 h-full rounded-full transition-all duration-300" style="width: 45%"></div>
+              <div class="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                <span>Centro S5: <b id="val-temp-center" class="text-cyan-400">20.5°</b></span>
+                <span>Máx: <b id="val-temp-max" class="text-amber-400">26.2°</b></span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                <div id="bar-temp" class="bg-gradient-to-r from-cyan-400 to-amber-500 h-full rounded-full transition-all duration-300" style="width: 45%"></div>
               </div>
             </div>
 
@@ -261,67 +355,32 @@
                 <span>Humedad Máx.</span>
                 <i class="fa-solid fa-droplet text-cyan-400 text-xs"></i>
               </div>
-              <div class="mt-1.5 flex items-baseline gap-1">
-                <span id="val-hum-max" class="text-2xl font-bold font-mono text-cyan-400">52.0</span>
+              <div class="mt-1 flex items-baseline gap-1">
+                <span id="val-hum-max" class="text-2xl font-bold font-mono text-cyan-400">64.5</span>
                 <span class="text-xs text-slate-400 font-mono">%</span>
               </div>
-              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                <div id="bar-hum" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-rose-500 h-full rounded-full transition-all duration-300" style="width: 52%"></div>
+              <div class="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                <span>Zona Maniquíes: <b id="val-hum-manikins" class="text-rose-400">62.0%</b></span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                <div id="bar-hum" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-rose-500 h-full rounded-full transition-all duration-300" style="width: 55%"></div>
               </div>
             </div>
           </div>
-          <div class="text-[10px] text-slate-500 font-mono text-right">Rango seguro: &lt;68% HR</div>
-        </div>
-      </div>
-
-      <!-- SECCIÓN 2: ESTADO DE ACTUADORES (COLAPSABLE) -->
-      <div class="rounded-xl bms-panel overflow-hidden">
-        <!-- Accordion Header -->
-        <button id="header-sec-actuators" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
-          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
-            <i class="fa-solid fa-wind text-cyan-400 text-xs"></i>
-            Actuadores HVAC & Sensor
-          </span>
-          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
-        </button>
-
-        <!-- Accordion Content -->
-        <div id="content-sec-actuators" class="accordion-content p-3 space-y-2">
-          <!-- Extractor Card -->
-          <div class="bms-card p-2 rounded-lg flex items-center justify-between">
-            <div class="flex items-center gap-2.5">
-              <div id="icon-extractor-container" class="w-7 h-7 rounded-md bg-slate-800 flex items-center justify-center text-slate-400 transition-colors">
-                <i id="icon-extractor" class="fa-solid fa-fan text-xs"></i>
-              </div>
-              <div>
-                <div class="text-xs font-medium text-slate-200">Extractor de Pared</div>
-                <div id="status-extractor-rpm" class="text-[10px] font-mono text-slate-400">0 RPM • Inactivo</div>
-              </div>
-            </div>
-            <span id="badge-extractor" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-800 text-slate-400">OFF</span>
-          </div>
-
-          <!-- Sensor LED Card -->
-          <div class="bms-card p-2 rounded-lg flex items-center justify-between">
-            <div class="flex items-center gap-2.5">
-              <div id="badge-sensor-led" class="w-3.5 h-3.5 rounded-full bg-emerald-500 led-dot-ok ml-2"></div>
-              <div>
-                <div class="text-xs font-medium text-slate-200">LED Sensor Clínico</div>
-                <div id="status-sensor-led-txt" class="text-[10px] font-mono text-emerald-400">NORMAL (0x10b981)</div>
-              </div>
-            </div>
-            <span id="badge-sensor-alert" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">SEGURO</span>
+          <div class="flex justify-between items-center text-[10px] text-slate-400 font-mono px-0.5">
+            <span>Rango óptimo: 45 - 55% HR</span>
+            <span id="hum-alert-badge" class="text-emerald-400 font-semibold">Condición Normal</span>
           </div>
         </div>
       </div>
 
-      <!-- SECCIÓN 3: MATRIZ 3x3 DE SECTORES (COLAPSABLE) -->
-      <div class="rounded-xl bms-panel overflow-hidden">
+      <!-- SECCIÓN 2: MATRIZ 3x3 DE SECTORES (DISTRIBUCIÓN FÍSICA CALIBRADA) -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-sectors" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
             <i class="fa-solid fa-border-all text-cyan-400 text-xs"></i>
-            Matriz de Sectores 3×3
+            Matriz de Sectores 3×3 (Distribución Física)
           </span>
           <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
         </button>
@@ -329,17 +388,69 @@
         <!-- Accordion Content -->
         <div id="content-sec-sectors" class="accordion-content p-3 space-y-2">
           <div class="flex justify-between items-center text-[10px] text-slate-400 font-mono">
-            <span>9 Nodos Ambientales</span>
-            <span id="active-mode-tag" class="text-cyan-400">Modo Físico</span>
+            <span>Zona Posterior: <b class="text-rose-400">Foco Maniquíes</b></span>
+            <span>Centro: <b class="text-cyan-400">Descarga AC</b></span>
           </div>
 
           <div id="sectors-grid-container" class="grid grid-cols-3 gap-1.5 p-1.5 rounded-lg bg-slate-950/70 border border-white/5">
             <!-- Sectores S1 - S9 -->
           </div>
 
-          <div class="flex justify-between text-[9px] text-slate-500 font-mono px-0.5">
-            <span>S1: Entrada</span>
-            <span>S9: Quirófano</span>
+          <div class="grid grid-cols-3 text-[9px] text-slate-400 font-mono text-center pt-0.5 gap-1">
+            <span class="bg-rose-500/10 rounded py-0.5 border border-rose-500/20 text-rose-300">S1-S3: Maniquíes</span>
+            <span class="bg-cyan-500/10 rounded py-0.5 border border-cyan-500/20 text-cyan-300">S5: Centro Frío AC</span>
+            <span class="bg-slate-800/60 rounded py-0.5 border border-white/5 text-slate-300">S7-S9: Acceso</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 3: GRÁFICAS DEL CICLO DE VIDA ÚTIL DE ELEMENTOS -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
+        <!-- Accordion Header -->
+        <button id="header-sec-lifecycle" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-chart-line text-cyan-400 text-xs"></i>
+            Ciclo de Vida Útil de Elementos
+          </span>
+          <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-lifecycle" class="accordion-content p-3 space-y-2.5">
+          <!-- Selector de Modo de Gráfica -->
+          <div class="grid grid-cols-3 gap-1 p-1 bg-slate-950/80 rounded-lg border border-white/5 text-[10px] font-medium text-center">
+            <button id="btn-chart-both" class="py-1 px-1.5 rounded transition-all bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              Comparativa
+            </button>
+            <button id="btn-chart-preventive" class="py-1 px-1.5 rounded transition-all text-slate-400 hover:text-white hover:bg-white/5">
+              Con Tareas IA
+            </button>
+            <button id="btn-chart-failure" class="py-1 px-1.5 rounded transition-all text-slate-400 hover:text-white hover:bg-white/5">
+              Sin Tareas
+            </button>
+          </div>
+
+          <!-- Canvas para Chart.js -->
+          <div class="relative w-full h-44 bg-slate-950/60 rounded-lg p-2 border border-white/5">
+            <canvas id="lifecycleChart"></canvas>
+          </div>
+
+          <!-- Resumen de impacto de vida útil -->
+          <div class="grid grid-cols-2 gap-2 text-[10px] font-mono">
+            <div class="bms-card p-2 rounded border-l-2 border-emerald-500">
+              <div class="text-emerald-400 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-shield-heart"></i> Con Prevención IA
+              </div>
+              <div class="text-slate-200 mt-0.5">Vida Útil: <b class="text-emerald-300">10+ Años</b></div>
+              <div class="text-[9px] text-slate-400">Degradación &lt;15%, sin hongos ni corrosión en maniquíes.</div>
+            </div>
+            <div class="bms-card p-2 rounded border-l-2 border-rose-500">
+              <div class="text-rose-400 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-triangle-exclamation"></i> Sin Tareas (Crítico)
+              </div>
+              <div class="text-slate-200 mt-0.5">Falla: <b class="text-rose-300">~3.5 Años</b></div>
+              <div class="text-[9px] text-slate-400">Moho en vías respiratorias, daño en servomotores y sensores.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -347,27 +458,27 @@
     </aside>
 
     <!-- ========================================================================= -->
-    <!-- PANEL DERECHO: MODOS 3D, ACCIONES Y REGISTRO DE EVENTOS                   -->
+    <!-- PANEL DERECHO: TAREAS DE PREVENCIÓN IA, SIMULACIÓN Y REGISTRO             -->
     <!-- ========================================================================= -->
-    <aside id="right-sidebar" class="sidebar-panel w-96 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll pl-1">
+    <aside id="right-sidebar" class="sidebar-panel w-96 max-w-[calc(100vw-24px)] flex flex-col space-y-2.5 pointer-events-auto overflow-y-auto custom-scroll h-full max-h-full min-h-0 pl-1.5 pr-1 pb-12">
       
       <!-- Barra superior del panel derecho -->
-      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs">
+      <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bms-panel text-xs shrink-0">
         <span class="font-semibold text-slate-300 flex items-center gap-1.5 text-[11px]">
-          <i class="fa-solid fa-sliders text-cyan-400"></i> Control y Registro
+          <i class="fa-solid fa-robot text-cyan-400"></i> Inteligencia Preventiva & Control
         </span>
         <button id="btn-close-right-sidebar" title="Ocultar panel derecho" class="text-slate-400 hover:text-white p-1 rounded transition-colors text-xs">
           <i class="fa-solid fa-chevron-right"></i>
         </button>
       </div>
 
-      <!-- SECCIÓN 1: MODOS DE VISUALIZACIÓN 3D (COLAPSABLE) -->
-      <div class="rounded-xl bms-panel overflow-hidden">
+      <!-- SECCIÓN 1: MODOS DE VISUALIZACIÓN 3D -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-viewmodes" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
             <i class="fa-solid fa-layer-group text-cyan-400 text-xs"></i>
-            Visualización 3D
+            Visualización Volumétrica 3D
           </span>
           <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
         </button>
@@ -388,45 +499,77 @@
         </div>
       </div>
 
-      <!-- SECCIÓN 2: SIMULACIÓN Y MITIGACIÓN AMBIENTAL (COLAPSABLE) -->
-      <div class="rounded-xl bms-panel overflow-hidden">
+      <!-- SECCIÓN 2: SIMULACIÓN DE ALZA (APAGAR AIRE ACONDICIONADO) -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-simulation" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
-            <i class="fa-solid fa-microchip text-cyan-400 text-xs"></i>
-            Protocolos de Simulación
+            <i class="fa-solid fa-arrow-trend-up text-cyan-400 text-xs"></i>
+            Simulación de Estrés Microclimático
           </span>
           <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
         </button>
 
         <!-- Accordion Content -->
         <div id="content-sec-simulation" class="accordion-content p-3 space-y-2">
-          <button id="btn-sim-night" class="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-amber-500/15 to-rose-500/15 hover:from-amber-500/25 hover:to-rose-500/25 border border-amber-500/30 text-amber-200 text-xs font-semibold flex items-center justify-between transition-all group">
+          <p class="text-[11px] text-slate-400">
+            Al apagar el aire acondicionado central, cesa el flujo de partículas y la humedad/temperatura aumentan por condensación de maniquíes.
+          </p>
+          
+          <button id="btn-toggle-sim" class="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-rose-500/20 hover:from-cyan-500/30 hover:to-rose-500/30 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center justify-between transition-all group shadow-sm">
             <span class="flex items-center gap-2">
-              <i class="fa-solid fa-moon text-amber-400 group-hover:rotate-12 transition-transform"></i>
-              Simular Noche (Apagar AC)
+              <i id="icon-sim-toggle" class="fa-solid fa-power-off text-cyan-400 group-hover:scale-110 transition-transform"></i>
+              <span id="text-sim-toggle">Simular Alza (Apagar AC Central)</span>
             </span>
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">+Humedad &uarr;</span>
+            <span id="badge-sim-status" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">AC ACTIVO</span>
           </button>
 
-          <div class="grid grid-cols-2 gap-2 pt-1">
-            <button id="btn-force-extractor" class="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-white/10 text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-all">
-              <i class="fa-solid fa-bolt text-cyan-400 text-xs"></i> Forzar Extractor
-            </button>
-            <button id="btn-reset-env" class="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-white/10 text-slate-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-all">
-              <i class="fa-solid fa-rotate-left text-slate-400 text-xs"></i> Restablecer
-            </button>
-          </div>
+          <button id="btn-reset-env" class="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-white/10 text-slate-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-all">
+            <i class="fa-solid fa-rotate-left text-slate-400 text-xs"></i> Restablecer Condiciones Nominales
+          </button>
         </div>
       </div>
 
-      <!-- SECCIÓN 3: REGISTRO DE EVENTOS Y CONTROL (COLAPSABLE) -->
-      <div class="flex-1 min-h-[220px] rounded-xl bms-panel overflow-hidden flex flex-col">
+      <!-- SECCIÓN 3: TAREAS DE PREVENCIÓN DE LA IA (APARICIÓN PROGRESIVA HASTA 4) -->
+      <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
-        <div class="flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 border-b border-white/5 bg-slate-900/40">
+        <button id="header-sec-aitasks" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
+          <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
+            <i class="fa-solid fa-wand-magic-sparkles text-cyan-400 text-xs"></i>
+            Tareas de Prevención de la IA
+          </span>
+          <div class="flex items-center gap-2">
+            <span id="tasks-progress-badge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/10">0/4 Activas</span>
+            <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
+          </div>
+        </button>
+
+        <!-- Accordion Content -->
+        <div id="content-sec-aitasks" class="accordion-content p-3 space-y-2">
+          <p class="text-[10px] text-slate-400">
+            La IA genera recomendaciones preventivas conforme aumentan la temperatura y humedad. Al completarlas, se reduce la humedad en sala.
+          </p>
+
+          <!-- Lista de Tareas Preventivas Dinámicas -->
+          <div id="ai-tasks-container" class="space-y-2">
+            <!-- Tareas inyectadas desde JS a medida que suben las variables -->
+          </div>
+
+          <!-- Botón Maestro: Aplicar todas las tareas preventivas -->
+          <button id="btn-apply-all-tasks" class="w-full mt-2 py-2 px-3 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all">
+            <i class="fa-solid fa-bolt text-emerald-400 text-xs"></i>
+            <span>Completar Todas las Tareas Preventivas</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 4: REGISTRO DE EVENTOS Y RECOMENDACIONES IA -->
+      <div class="h-52 shrink-0 rounded-xl bms-panel overflow-hidden flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-200 border-b border-white/5 bg-slate-900/40 shrink-0">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
             <i class="fa-solid fa-terminal text-cyan-400 text-xs"></i>
-            Registro de Eventos y Actuadores
+            Registro de Eventos y Recomendaciones IA
           </span>
           <button id="btn-clear-terminal" class="text-[10px] text-slate-500 hover:text-slate-300 font-mono transition-colors">
             Limpiar
@@ -439,9 +582,9 @@
         </div>
 
         <!-- Status Footer -->
-        <div class="px-3 py-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500 bg-slate-950/60">
-          <span>Ciclo de control: 200 ms</span>
-          <span>Umbral crítico: &gt;68% HR</span>
+        <div class="px-3 py-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500 bg-slate-950/60 shrink-0">
+          <span>Ciclo de supervisión: 200 ms</span>
+          <span>Umbral preventivo: &gt;58% HR</span>
         </div>
       </div>
 
