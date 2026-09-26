@@ -7,22 +7,23 @@
 ---
 
 ## 1. RESUMEN EJECUTIVO Y OBJETIVO
-Construcción de un gemelo digital 3D interactivo en la web para la supervisión y control microclimático autónomo en un laboratorio de simulación clínica hospitalaria. Integra:
-1. **Dinámica de partículas reactiva al estado del AC**: Cuando el aire acondicionado se apaga (simulación de alza térmica e higrométrica), las partículas se transparentan y desvanecen gradualmente; al encenderse el AC, reingresan con una suave animación en cascada desde el difusor del techo.
-2. **Sistema de Tareas Preventivas de la IA con aparición progresiva (máximo 4)**: Las recomendaciones no se muestran todas al inicio, sino que se desbloquean dinámicamente conforme ascienden la humedad y la temperatura, presentándose con una animación de salto como notificación flotante antes de ubicarse en el panel.
-3. **Modelado y proyección del Ciclo de Vida Útil** mediante dos gráficas comparativas (Con Prevención IA vs. Falla Prematura sin intervención).
-4. **Matriz 3×3 física calibrada**: Sector central (S5) con la menor temperatura por descarga directa de AC, y sectores posteriores (S1, S2, S3) con la mayor concentración de humedad por presencia de maniquíes de alta fidelidad.
-5. **Mapas térmicos y de humedad de alta visibilidad**: Reducción de transparencia (opacidad $0.68$ a $0.84$ y resplandor emissive) para una clara diferenciación visual en 3D.
-6. **Interfaz clínica ergonómica**: Barras de desplazamiento estilizadas en cian de alta visibilidad y contenedor delimitado para evitar ocultamiento de datos en pantallas compactas.
+Construcción de un gemelo digital 3D interactivo en la web para la supervisión y control microclimático autónomo en un laboratorio de simulación clínica hospitalaria. El sistema integra:
+1. **Dinámica de Partículas Reactiva y Dispersión Gradual**: Al apagarse el aire acondicionado (simulación de alza higrotérmica), las partículas no desaparecen de golpe; experimentan una deriva orgánica y desvanecimiento progresivo durante 6 a 8 segundos. Al encenderse, reingresan mediante una suave cascada laminar desde el difusor del techo.
+2. **Tareas Preventivas de IA Proporcionales a la Humedad**: Las recomendaciones se desbloquean progresivamente (hasta 4 tareas) conforme suben la humedad y la temperatura, presentándose con animación de salto flotante (`toast`). Al ejecutarse, cada tarea elimina matemáticamente una porción proporcional del exceso de humedad hasta restaurar la sala a su umbral nominal (~$50.0\%$ HR).
+3. **Alerta Crítica Central Abrupta ($>75\%$ HR)**: Despliegue inmediato e impactante de un modal central con animación `abrupt-slam` cuando la humedad relativa en cualquier sector supera el $75\%$, alertando el riesgo inminente de proliferación de moho y daño dieléctrico irreversible en maniquíes.
+4. **Gráfica de Ciclo de Vida Útil Calibrada (Laerdal / MedVision)**: Comparativa técnica de durabilidad con degradación lineal suave bajo control IoT/IA (umbral del $40\%$ cruzado a los **8.7 años**) versus degradación exponencial acelerada sin control ambiental (falla crítica a los **2.4 años**), visualizando una ganancia neta superior a los **6 años de operatividad** con área sombreada.
+5. **Matriz 3×3 Física Calibrada**: El sector central (S5) concentra la menor temperatura por inyección directa del AC, mientras que los sectores posteriores (S1, S2, S3) presentan la mayor concentración de humedad debido a la densidad de maniquíes de alta fidelidad.
+6. **Mapas Térmicos y de Humedad de Alta Visibilidad**: Reducción de transparencia (opacidad $0.68$ a $0.84$ y resplandor *emissive*) para una clara diferenciación volumétrica en 3D.
+7. **Interfaz Clínica Ergonómica**: Barras de desplazamiento estilizadas en cian de alta visibilidad (`custom-scroll`) y jerarquía visual optimizada para evitar ocultamiento de datos en pantallas compactas o portátiles.
 
 ---
 
 ## 2. STACK TECNOLÓGICO Y LIBRERÍAS
-* **Three.js r128**: Motor gráfico WebGL con renderizado físico ACES Filmic.
+* **Three.js r128**: Motor gráfico WebGL con renderizado físico ACES Filmic y sombreado suave.
 * **OrbitControls**: Control orbital de cámara con amortiguación suave (`dampingFactor = 0.05`).
-* **GLTFLoader**: Carga optimizada del modelo 3D con indicador de progreso en MB y porcentaje.
-* **Chart.js 4.5.1**: Gráficas interactivas de proyección de ciclo de vida útil del equipamiento biomédico.
-* **Tailwind CSS**: Maquetación reactiva y paneles translúcidos de control clínico BMS.
+* **GLTFLoader**: Carga asíncrona optimizada del modelo 3D con indicador de progreso en MB y porcentaje.
+* **Chart.js 4.5.1**: Gráfica de proyección de ciclo de vida útil del equipamiento biomédico con escalas lineales continuas y zonas de sombreado de ganancia.
+* **Tailwind CSS**: Maquetación reactiva, paneles translúcidos de control clínico BMS y modales de emergencia.
 * **FontAwesome 6**: Iconografía de grado médico, bioingeniería y automatización.
 * **Google Fonts**: `Inter` (interfaz) y `JetBrains Mono` (telemetría y consola de eventos).
 
@@ -30,10 +31,10 @@ Construcción de un gemelo digital 3D interactivo en la web para la supervisión
 
 ## 3. ESTRUCTURA DEL REPOSITORIO
 ```text
-simuladorpy/
-├── index.html              # Interfaz BMS hospitalario, paneles colapsables, gráficas y visor WebGL
+simulador-3d/
+├── index.html              # Interfaz BMS hospitalario, paneles colapsables, modal crítico y visor WebGL
 ├── js/
-│   └── main.js             # Motor 3D, física volumétrica, tareas preventivas de IA y telemetría
+│   └── main.js             # Motor 3D, física volumétrica, tareas preventivas de IA, telemetría y Chart.js
 ├── public/
 │   └── simulador3d.glb     # Modelo 3D exportado de Blender (~92.4 MB)
 ├── .gitignore              # Exclusiones de Git
@@ -78,28 +79,55 @@ simuladorpy/
   * **S8 (Camilla Quirúrgica / RCP)**: Temp base $23.6^\circ\text{C}$, Humedad base $58.0\%$ HR (maniquí de reanimación).
   * **S9 (Estación Monitores & Equipos)**: Temp base $26.2^\circ\text{C}$ (calor disipado por electrónica), Humedad base $52.5\%$ HR.
 
-### B. Dinámica de Partículas de Aire
-* **Comportamiento con AC Apagado (Simulación de alza)**:
-  * La opacidad desciende progresivamente mediante interpolación lerp hasta $0.0$, deteniendo el movimiento y ocultando el sistema de partículas para reflejar la ausencia de inyección de aire frío.
+### B. Dinámica de Partículas de Aire y Dispersión Gradual
+* **Comportamiento con AC Apagado (Simulación de Alza Térmica/Higrométrica)**:
+  * Las partículas ya no desaparecen de manera instantánea.
+  * Pasan a un estado de **dispersión lenta**: mantienen una deriva inercial radial (`drift`) con ligera flotabilidad térmica, mientras su opacidad se atenúa gradualmente mediante `delta * 0.32` a lo largo de un intervalo orgánico de **6 a 8 segundos** hasta extinguirse.
 * **Animación de Entrada con AC Activo**:
-  * Al encenderse o reanudarse el AC, las partículas reingresan con una ráfaga laminar descendente desde el difusor central en el techo, aumentando su opacidad de $0.0$ a $0.82$ y abriéndose en abanico por la sala.
+  * Al encenderse el sistema de acondicionamiento, las partículas inician una cascada laminar descendente desde el difusor en el techo ($Y \approx 0.94\text{ m}$), aumentando progresivamente su opacidad de $0.0$ a $0.82$ y distribuyéndose en abanico por el volumen total de la sala.
 * **Coloración Reactiva**:
-  * Cian cristalino (`0x38bdf8`) en condiciones nominales y rojo coral / magenta (`0xef4444`) en sectores críticos de maniquíes.
+  * Cian cristalino (`0x38bdf8`) en condiciones nominales de inyección fría.
+  * Rojo coral / carmesí (`0xef4444`) en los sectores de maniquíes con estrés higrométrico.
 
-### C. Tareas Preventivas de la IA con Notificación Flotante
-* **Aparición progresiva por umbrales (hasta 4 tareas)**:
+### C. Sistema de Tareas Preventivas de IA con Equivalencia Matemática
+* **Desbloqueo progresivo por umbrales (hasta 4 tareas)**:
   1. *Deshumidificación Profunda en AC Central* (HR $\ge 66.5\%$ o Temp $\ge 24.1^\circ\text{C}$).
   2. *Purga y Secado en Simuladores de Pacientes S1-S3* (HR $\ge 69.0\%$ o Maniquíes $\ge 64.0\%$).
   3. *Redistribución de Flujo Laminar Periférico* (HR $\ge 73.0\%$ o Temp $\ge 25.2^\circ\text{C}$).
   4. *Filtros HEPA & Control de Punto de Rocío* (HR $\ge 77.0\%$).
-* **Animación**:
-  * Notificación flotante emergente con efecto de salto (`toast-jump-in`).
-  * Transición de entrada al panel lateral con animación de aterrizaje (`task-card-land`).
-  * Ejecución interactiva que reduce la humedad inmediatamente.
+* **Animación de Notificación Flotante**:
+  * Al activarse una tarea, salta al centro-derecha de la pantalla con efecto elástico (`toast-jump-in`) antes de posarse en la lista de tareas del panel lateral (`task-card-land`).
+* **Equivalencia Matemática y Retorno al Umbral Correcto**:
+  * Cada tarea ejecutada reduce una fracción proporcional del exceso higrotérmico:  
+    $$\Delta H = \frac{\text{Humedad Actual} - \text{Humedad Nominal}}{\text{Tareas Restantes}}$$
+  * Al completar todas las tareas pendientes, la sala regresa con exactitud al nivel de humedad nominal (~$50.0\%$ HR global), restaurando la estabilidad ambiental y reiniciando el flujo laminar del AC.
 
-### D. Mapas 3D con Alta Visibilidad
-* **Opacidad**: Ajustada a un rango entre $0.68$ y $0.84$.
-* **Brillo Emissive**: Intensidad entre $0.40$ y $0.75$ para destacar los volúmenes sin transparencias excesivas que dificulten su identificación visual.
+### D. Aviso de Estado Crítico Abrupto ($>75\%$ HR)
+* **Activación**: Disparado inmediatamente en cuanto la humedad máxima de cualquier sector supera el **$75.0\%$ HR**.
+* **Impacto Visual**: Modal centrado con fondo oscuro translúcido y animación `abrupt-slam` (escala súbita desde $1.4\times$ con rebote tenso), borde rojo carmesí parpadeante y señalética de alarma médica.
+* **Mensaje Técnico**: Advierte sobre la condensación inminente en los componentes elastoméricos, conectores de sensores internos y riesgo de cortocircuito o colonización por moho en maniquíes pediátricos y de UCI.
+* **Interacción**: Permite descartar la alarma para proceder a la ejecución de tareas correctivas en el panel de IA.
+
+### E. Proyección del Ciclo de Vida Útil de Maniquíes (Calibración Laerdal / MedVision)
+La gráfica interactiva en `index.html` implementada con Chart.js refleja la degradación comparativa basada en guías de fabricantes y estudios higrotérmicos de polímeros:
+* **Eje X (Tiempo)**: 0 a 10 Años de servicio continuo.
+* **Eje Y (Funcionalidad y Estado Físico)**: $0\%$ a $100\%$.
+* **Umbral Crítico de Falla e Inoperatividad**: Línea punteada horizontal roja en el **$40\%$**.
+* **Línea Verde (Con Control IoT / IA)**:
+  * Curva de degradación suave y progresiva.
+  * Cruza el umbral crítico ($40\%$) a los **8.7 años**.
+  * Retiene un $30\%$ de estado funcional a los 10 años.
+* **Línea Roja Discontinua (Sin Control Ambiental)**:
+  * Degradación exponencial acelerada provocada por humedad y calor acumulado.
+  * Cruza el umbral crítico de falla a los **2.4 años**.
+  * Cae al $1.8\%$ a los 10 años (pérdida total del activo).
+* **Zona de Sombra (Ganancia Operativa)**:
+  * Relleno degradado esmeralda entre ambas curvas que destaca una **ganancia de más de 6 años de vida útil operativa** y la prevención de sobrecostos de reemplazo prematuro.
+* **Cita Técnica**: *"Fuente: Estimación técnica basada en guías de fabricantes (Laerdal, MedVision) y estudios de envejecimiento higrotérmico de polímeros (2024-2026)."*
+
+### F. Mapas 3D con Alta Visibilidad
+* **Opacidad**: Ajustada entre $0.68$ y $0.84$.
+* **Brillo Emissive**: Factor de $0.40$ a $0.75$ para que la visualización volumétrica de calor y humedad sea nítida y evidente sobre el modelo tridimensional.
 
 ---
 
@@ -112,6 +140,3 @@ python -m http.server 3000
 npx serve -l 3000
 ```
 Abrir en el navegador: `http://localhost:3000`
-
-
-

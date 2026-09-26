@@ -195,6 +195,29 @@
     .animate-task-land {
       animation: task-card-land 0.40s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
+
+    /* Abrupt Critical Slam Animation (>75% HR) */
+    @keyframes abrupt-slam {
+      0% {
+        transform: scale(0.35) translateY(-90px);
+        opacity: 0;
+      }
+      55% {
+        transform: scale(1.08) translateY(12px);
+        opacity: 1;
+      }
+      80% {
+        transform: scale(0.96) translateY(-4px);
+      }
+      100% {
+        transform: scale(1.0) translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .animate-abrupt-jump {
+      animation: abrupt-slam 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.35) forwards;
+    }
   </style>
 </head>
 <body class="relative w-screen h-screen overflow-hidden">
@@ -258,8 +281,49 @@
     </div>
   </header>
 
+  <!-- MODAL DE ESTADO CRÍTICO ABRUPTO EN EL CENTRO DE LA PANTALLA (>75% HR) -->
+  <div id="critical-alert-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md hidden transition-opacity duration-200">
+    <div id="critical-alert-box" class="max-w-lg w-full p-6 rounded-2xl bms-panel border-2 border-rose-500 shadow-[0_0_60px_rgba(244,63,94,0.65)] text-center relative bg-slate-950/95 animate-abrupt-jump">
+      
+      <!-- Pulsing Emergency Icon -->
+      <div class="w-16 h-16 mx-auto mb-3 rounded-2xl bg-rose-500/20 border-2 border-rose-500/60 flex items-center justify-center text-rose-500 text-3xl shadow-lg shadow-rose-500/30 animate-pulse">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+
+      <!-- Emergency Category Badge -->
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold uppercase tracking-wider mb-2">
+        <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+        Alerta Crítica Hospitalaria: HR &gt; 75.0%
+      </div>
+
+      <!-- Title & Live Value -->
+      <h3 class="text-lg font-bold text-white tracking-wide">Peligro de Degradación Acelerada en Maniquíes</h3>
+      <div class="my-3 flex items-baseline justify-center gap-2">
+        <span id="abrupt-critical-val" class="text-5xl font-black font-mono text-rose-500">76.4</span>
+        <span class="text-xl font-mono text-slate-400 font-bold">% HR</span>
+      </div>
+
+      <!-- Clinical Diagnostic Text -->
+      <p class="text-xs text-slate-300 leading-relaxed max-w-md mx-auto mb-5">
+        Se ha superado el <b>umbral crítico del 75% HR</b> en la sala de simulación. Riesgo inminente de proliferación de hongos y moho en vías aéreas de maniquíes de silicona, sulfatación en sensores de signos vitales y colapso de la vida útil operativa de <b>8.7 a 2.4 años</b>.
+      </p>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-col sm:flex-row gap-2.5 justify-center">
+        <button id="btn-modal-mitigate" class="py-2.5 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs font-mono transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 active:scale-95">
+          <i class="fa-solid fa-bolt text-sm"></i>
+          <span>Ejecutar Mitigación IA Inmediata</span>
+        </button>
+        <button id="btn-modal-close" class="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono transition-all border border-white/10 active:scale-95">
+          Atender Contingencia (Cerrar)
+        </button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- NOTIFICACIÓN FLOTANTE DE SALTO: NUEVA RECOMENDACIÓN IA -->
-  <div id="floating-task-toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none hidden max-w-md w-[calc(100vw-32px)]">
+  <div id="floating-task-toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-none hidden max-w-md w-[calc(100vw-32px)]">
     <div id="toast-card-inner" class="pointer-events-auto p-3.5 rounded-xl bms-panel border-2 border-amber-400/80 shadow-[0_0_30px_rgba(245,158,11,0.35)] flex items-center justify-between gap-3 bg-slate-950/95 backdrop-blur-2xl animate-toast-jump">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 text-lg shrink-0 shadow-inner">
@@ -404,54 +468,73 @@
         </div>
       </div>
 
-      <!-- SECCIÓN 3: GRÁFICAS DEL CICLO DE VIDA ÚTIL DE ELEMENTOS -->
+      <!-- SECCIÓN 3: GRÁFICAS DEL CICLO DE VIDA ÚTIL DE ELEMENTOS (CONFORME A GUÍAS LAERDAL / MEDVISION) -->
       <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-lifecycle" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
           <span class="flex items-center gap-2 uppercase tracking-wider text-[11px]">
             <i class="fa-solid fa-chart-line text-cyan-400 text-xs"></i>
-            Ciclo de Vida Útil de Elementos
+            El Control Ambiental duplica la Vida Útil
           </span>
           <i class="fa-solid fa-chevron-down chevron-icon text-[10px] text-slate-400"></i>
         </button>
 
         <!-- Accordion Content -->
         <div id="content-sec-lifecycle" class="accordion-content p-3 space-y-2.5">
+          <!-- Subtítulo oficial del modelo -->
+          <div class="text-[11px] font-bold text-slate-200 tracking-tight text-center">
+            Vida Útil Operativa de los Maniquíes de Simulación Clínica
+          </div>
+
           <!-- Selector de Modo de Gráfica -->
           <div class="grid grid-cols-3 gap-1 p-1 bg-slate-950/80 rounded-lg border border-white/5 text-[10px] font-medium text-center">
-            <button id="btn-chart-both" class="py-1 px-1.5 rounded transition-all bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+            <button id="btn-chart-both" class="py-1 px-1.5 rounded transition-all bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold">
               Comparativa
             </button>
             <button id="btn-chart-preventive" class="py-1 px-1.5 rounded transition-all text-slate-400 hover:text-white hover:bg-white/5">
-              Con Tareas IA
+              Con Control IA
             </button>
             <button id="btn-chart-failure" class="py-1 px-1.5 rounded transition-all text-slate-400 hover:text-white hover:bg-white/5">
-              Sin Tareas
+              Sin Control
             </button>
           </div>
 
           <!-- Canvas para Chart.js -->
-          <div class="relative w-full h-44 bg-slate-950/60 rounded-lg p-2 border border-white/5">
+          <div class="relative w-full h-60 sm:h-64 bg-slate-950/80 rounded-lg p-2 border border-white/5">
             <canvas id="lifecycleChart"></canvas>
           </div>
 
-          <!-- Resumen de impacto de vida útil -->
+          <!-- Puntos Clave de la Referencia -->
           <div class="grid grid-cols-2 gap-2 text-[10px] font-mono">
-            <div class="bms-card p-2 rounded border-l-2 border-emerald-500">
+            <div class="bms-card p-2 rounded border-l-2 border-emerald-500 bg-emerald-500/5">
               <div class="text-emerald-400 font-semibold flex items-center gap-1">
-                <i class="fa-solid fa-shield-heart"></i> Con Prevención IA
+                <i class="fa-solid fa-circle-check text-[10px]"></i> Con Control IoT/IA
               </div>
-              <div class="text-slate-200 mt-0.5">Vida Útil: <b class="text-emerald-300">10+ Años</b></div>
-              <div class="text-[9px] text-slate-400">Degradación &lt;15%, sin hongos ni corrosión en maniquíes.</div>
+              <div class="text-slate-200 mt-0.5">Vida Útil: <b class="text-emerald-300">~8.7 Años</b></div>
+              <div class="text-[8.5px] text-slate-400">Degradación lineal suave por encima del umbral crítico (40%).</div>
             </div>
-            <div class="bms-card p-2 rounded border-l-2 border-rose-500">
+            <div class="bms-card p-2 rounded border-l-2 border-rose-500 bg-rose-500/5">
               <div class="text-rose-400 font-semibold flex items-center gap-1">
-                <i class="fa-solid fa-triangle-exclamation"></i> Sin Tareas (Crítico)
+                <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Sin Control (&gt;75% HR)
               </div>
-              <div class="text-slate-200 mt-0.5">Falla: <b class="text-rose-300">~3.5 Años</b></div>
-              <div class="text-[9px] text-slate-400">Moho en vías respiratorias, daño en servomotores y sensores.</div>
+              <div class="text-slate-200 mt-0.5">Falla Crítica: <b class="text-rose-300">~2.4 Años</b></div>
+              <div class="text-[8.5px] text-slate-400">Degradación exponencial acelerada e inoperatividad prematura.</div>
             </div>
           </div>
+
+          <!-- Badge Zona Sombra Ganancia +6 Años -->
+          <div class="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-[10px] font-mono">
+            <span class="text-emerald-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-heart text-emerald-400"></i>
+              <b>Zona Sombra:</b> +6 Años Ganados
+            </span>
+            <span class="text-slate-400 text-[8.5px]">Prevención de sobrecostos de reemplazo</span>
+          </div>
+
+          <!-- Pie de Fuente Técnica Oficial -->
+          <p class="text-[8.5px] text-slate-500 font-mono italic leading-tight text-center">
+            Fuente: Estimación técnica basada en guías de fabricantes (Laerdal, MedVision) y estudios de envejecimiento higrotérmico de polímeros (2024-2026).
+          </p>
         </div>
       </div>
 
@@ -512,8 +595,8 @@
 
         <!-- Accordion Content -->
         <div id="content-sec-simulation" class="accordion-content p-3 space-y-2">
-          <p class="text-[11px] text-slate-400">
-            Al apagar el aire acondicionado central, cesa el flujo de partículas y la humedad/temperatura aumentan por condensación de maniquíes.
+          <p class="text-[11px] text-slate-400 leading-snug">
+            Al apagar el aire acondicionado central, cesa el flujo de ventilación con dispersión gradual de partículas y la humedad/temperatura aumentan en sala.
           </p>
           
           <button id="btn-toggle-sim" class="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-rose-500/20 hover:from-cyan-500/30 hover:to-rose-500/30 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center justify-between transition-all group shadow-sm">
@@ -530,7 +613,7 @@
         </div>
       </div>
 
-      <!-- SECCIÓN 3: TAREAS DE PREVENCIÓN DE LA IA (APARICIÓN PROGRESIVA HASTA 4) -->
+      <!-- SECCIÓN 3: TAREAS DE PREVENCIÓN DE LA IA (APARICIÓN PROGRESIVA Y EQUIVALENCIA AL UMBRAL) -->
       <div class="rounded-xl bms-panel overflow-hidden shrink-0">
         <!-- Accordion Header -->
         <button id="header-sec-aitasks" class="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-white/5 border-b border-white/5 transition-colors">
@@ -546,8 +629,8 @@
 
         <!-- Accordion Content -->
         <div id="content-sec-aitasks" class="accordion-content p-3 space-y-2">
-          <p class="text-[10px] text-slate-400">
-            La IA genera recomendaciones preventivas conforme aumentan la temperatura y humedad. Al completarlas, se reduce la humedad en sala.
+          <p class="text-[10px] text-slate-400 leading-snug">
+            La IA genera recomendaciones preventivas equivalentes al exceso de humedad. Al completarlas progresivamente, el laboratorio retorna al umbral seguro (50% HR).
           </p>
 
           <!-- Lista de Tareas Preventivas Dinámicas -->
@@ -556,7 +639,7 @@
           </div>
 
           <!-- Botón Maestro: Aplicar todas las tareas preventivas -->
-          <button id="btn-apply-all-tasks" class="w-full mt-2 py-2 px-3 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all">
+          <button id="btn-apply-all-tasks" class="w-full mt-2 py-2 px-3 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm">
             <i class="fa-solid fa-bolt text-emerald-400 text-xs"></i>
             <span>Completar Todas las Tareas Preventivas</span>
           </button>
@@ -584,7 +667,7 @@
         <!-- Status Footer -->
         <div class="px-3 py-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500 bg-slate-950/60 shrink-0">
           <span>Ciclo de supervisión: 200 ms</span>
-          <span>Umbral preventivo: &gt;58% HR</span>
+          <span>Umbral crítico: &gt;75% HR</span>
         </div>
       </div>
 
