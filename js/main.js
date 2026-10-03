@@ -938,6 +938,35 @@ function unlockAITask(task) {
 }
 
 /**
+ * Valores nominales esperados para cada sector cuando la sala vuelve a una operación segura.
+ * La meta de control mantiene la humedad cercana a 50% HR y la temperatura alrededor de 22°C,
+ * sin dejar zonas de maniquíes por encima del rango operativo aceptable.
+ */
+function getNominalSectorHumidity(sec) {
+  const targetHum = sec.isManikinZone ? CONFIG.TARGET_HUMIDITY + 4.0 : CONFIG.TARGET_HUMIDITY;
+  return Math.min(sec.baseHumidity, targetHum);
+}
+
+function getNominalSectorTemp(sec) {
+  const targetTemp = sec.isManikinZone ? CONFIG.OPTIMAL_TEMP + 1.5 : CONFIG.OPTIMAL_TEMP;
+  return Math.min(sec.baseTemp, targetTemp);
+}
+
+function normalizeEnvironmentToSafeConditions() {
+  LabState.sectors.forEach((sec) => {
+    sec.humidity = getNominalSectorHumidity(sec);
+    sec.temp = getNominalSectorTemp(sec);
+  });
+
+  LabState.isSimulationRunning = false;
+  LabState.hasShownCritical75Alert = false;
+  closeAbruptCriticalModal();
+  triggerACEntranceAnimation();
+  updateSimulationToggleUI();
+  evaluateLabSensors();
+}
+
+/**
  * Ejecución de tareas con reducción proporcional equivalente al nivel de humedad:
  * Conforme se van completando las tareas, la humedad regresa gradualmente al umbral correcto (50.0% HR).
  */
@@ -961,13 +990,15 @@ function executeAITask(taskId) {
     LabState.sectors.forEach((sec) => {
       const isTarget = task.targetSectors.includes('all') || task.targetSectors.includes(sec.id);
       if (isTarget) {
-        const excessHum = Math.max(0, sec.humidity - sec.baseHumidity);
-        const humDelta = (excessHum * shareRatio) / totalSteps;
-        sec.humidity = Math.max(sec.baseHumidity, sec.humidity - humDelta);
+        const targetHumidity = getNominalSectorHumidity(sec);
+        const excessHum = Math.max(0, sec.humidity - targetHumidity);
+        const humDelta = Math.max(0.40, (excessHum * shareRatio) / totalSteps);
+        sec.humidity = Math.max(targetHumidity, sec.humidity - humDelta);
 
-        const excessTemp = Math.max(0, sec.temp - sec.baseTemp);
-        const tempDelta = (excessTemp * shareRatio) / totalSteps;
-        sec.temp = Math.max(sec.baseTemp, sec.temp - tempDelta);
+        const targetTemp = getNominalSectorTemp(sec);
+        const excessTemp = Math.max(0, sec.temp - targetTemp);
+        const tempDelta = Math.max(0.08, (excessTemp * shareRatio) / totalSteps);
+        sec.temp = Math.max(targetTemp, sec.temp - tempDelta);
       }
     });
 
@@ -983,9 +1014,7 @@ function executeAITask(taskId) {
       // Si todas las tareas activas se han completado, normalizar por completo
       const allActiveDone = LabState.aiTasks.filter(t => t.unlocked).every(t => t.completed);
       if (allActiveDone) {
-        LabState.isSimulationRunning = false;
-        triggerACEntranceAnimation();
-        closeAbruptCriticalModal();
+        normalizeEnvironmentToSafeConditions();
         addAILog('IA-MITIGACIÓN', '✅ Contingencia resuelta: Todas las tareas preventivas completadas. Humedad estabilizada en el umbral nominal (50% HR).', 'ok');
       }
     }
@@ -1016,11 +1045,24 @@ function updateAILogic(delta) {
   aiLoopTimer += delta;
 
   if (LabState.isSimulationRunning) {
+    // Identificar sectores actualmente en mitigación para inhibir alza mientras la IA los drena
+    const activeMitigatingSectors = new Set();
+    LabState.aiTasks.filter(t => t.inProgress).forEach(t => {
+      if (t.targetSectors.includes('all')) {
+        LabState.sectors.forEach(s => activeMitigatingSectors.add(s.id));
+      } else {
+        t.targetSectors.forEach(id => activeMitigatingSectors.add(id));
+      }
+    });
+
     LabState.sectors.forEach((sec) => {
+      if (activeMitigatingSectors.has(sec.id)) return;
+
       const humRate = (0.30 + Math.random() * 0.18) * sec.manikinWeight * LabState.simSpeed;
       sec.humidity = Math.min(88.0, sec.humidity + humRate * delta);
 
-      const tempRate = (sec.isACCenter ? 0.012 : (0.035 + Math.random() * 0.025)) * LabState.simSpeed;
+      // Al cesar la refrigeración por AC, el centro también incrementa temperatura gradualmente
+      const tempRate = (sec.isACCenter ? 0.028 : (0.038 + Math.random() * 0.025)) * LabState.simSpeed;
       sec.temp = Math.min(29.5, sec.temp + tempRate * delta);
     });
 
@@ -1034,6 +1076,22 @@ function updateAILogic(delta) {
         if (isHumMet || isTempMet || isManikinSpecial) {
           unlockAITask(task);
         }
+      }
+    });
+  } else if (LabState.acIsOn) {
+    // Climatización activa: El AC central inyecta aire frío y deshumidificado continuamente.
+    // Si la humedad o temperatura de algún sector supera su umbral nominal, desciende de forma visible y orgánica.
+    LabState.sectors.forEach((sec) => {
+      const nomHum = getNominalSectorHumidity(sec);
+      const nomTemp = getNominalSectorTemp(sec);
+
+      if (sec.humidity > nomHum) {
+        const coolHumRate = (sec.isACCenter ? 1.6 : 0.95) * LabState.simSpeed;
+        sec.humidity = Math.max(nomHum, sec.humidity - coolHumRate * delta);
+      }
+      if (sec.temp > nomTemp) {
+        const coolTempRate = (sec.isACCenter ? 0.45 : 0.28) * LabState.simSpeed;
+        sec.temp = Math.max(nomTemp, sec.temp - coolTempRate * delta);
       }
     });
   }
@@ -1188,6 +1246,31 @@ function updateTelemetryUI() {
   }
 }
 
+function updateSimulationToggleUI() {
+  const textSimToggle = document.getElementById('text-sim-toggle');
+  const iconSimToggle = document.getElementById('icon-sim-toggle');
+  const badgeSimStatus = document.getElementById('badge-sim-status');
+  const btnToggleSim = document.getElementById('btn-toggle-sim');
+
+  if (LabState.isSimulationRunning) {
+    if (textSimToggle) textSimToggle.innerText = 'Encender AC Central (Detener Alza)';
+    if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-power-off text-rose-400';
+    if (badgeSimStatus) {
+      badgeSimStatus.innerText = 'AC APAGADO (+HR)';
+      badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse';
+    }
+    if (btnToggleSim) btnToggleSim.classList.add('ring-2', 'ring-rose-500/50');
+  } else {
+    if (textSimToggle) textSimToggle.innerText = 'Simular Alza (Apagar AC Central)';
+    if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-wind text-cyan-400';
+    if (badgeSimStatus) {
+      badgeSimStatus.innerText = 'AC ACTIVO';
+      badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+    }
+    if (btnToggleSim) btnToggleSim.classList.remove('ring-2', 'ring-rose-500/50');
+  }
+}
+
 function renderUIMiniMap() {
   const container = document.getElementById('sectors-grid-container');
   if (!container) return;
@@ -1212,11 +1295,11 @@ function renderUIMiniMap() {
     cell.innerHTML = `
       <div class="flex justify-between items-center text-[9px] font-mono">
         <span class="font-bold ${sec.isACCenter ? 'text-cyan-300' : 'text-slate-300'}">${sec.id}</span>
-        <span class="${sec.humidity >= CONFIG.CRITICAL_HUMIDITY ? 'text-rose-400 font-bold' : 'text-slate-300'}">${sec.humidity.toFixed(0)}%</span>
+        <span class="${sec.humidity >= CONFIG.CRITICAL_HUMIDITY ? 'text-rose-400 font-bold' : (sec.humidity <= 50.5 ? 'text-emerald-400 font-medium' : 'text-slate-300')}">${sec.humidity.toFixed(0)}%</span>
       </div>
       <div class="flex justify-between items-center text-[8.5px] font-mono text-slate-400 mt-0.5">
         <span class="${sec.isACCenter ? 'text-cyan-400 font-semibold' : (sec.isManikinZone ? 'text-rose-300' : 'text-slate-500')}">${subTag}</span>
-        <span>${sec.temp.toFixed(1)}°</span>
+        <span class="${sec.temp >= 25.5 ? 'text-amber-300 font-semibold' : (sec.temp <= 21.0 ? 'text-cyan-300' : 'text-slate-300')}">${sec.temp.toFixed(1)}°</span>
       </div>
     `;
 
@@ -1607,9 +1690,6 @@ function setupEventListeners() {
 
   // Botón Toggle Simulación (Apagar AC / Encender AC)
   const btnToggleSim = document.getElementById('btn-toggle-sim');
-  const textSimToggle = document.getElementById('text-sim-toggle');
-  const iconSimToggle = document.getElementById('icon-sim-toggle');
-  const badgeSimStatus = document.getElementById('badge-sim-status');
 
   if (btnToggleSim) {
     btnToggleSim.addEventListener('click', () => {
@@ -1617,24 +1697,12 @@ function setupEventListeners() {
 
       if (LabState.isSimulationRunning) {
         LabState.acIsOn = false;
-        if (textSimToggle) textSimToggle.innerText = 'Encender AC Central (Detener Alza)';
-        if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-power-off text-rose-400';
-        if (badgeSimStatus) {
-          badgeSimStatus.innerText = 'AC APAGADO (+HR)';
-          badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse';
-        }
-        btnToggleSim.classList.add('ring-2', 'ring-rose-500/50');
+        updateSimulationToggleUI();
         addAILog('AC-CENTRAL', '❄️ AC central apagado: cesa el flujo de aire y las partículas se desvanecen gradualmente. Se inicia alza de HR y temperatura.', 'alert');
       } else {
         triggerACEntranceAnimation();
-        if (textSimToggle) textSimToggle.innerText = 'Simular Alza (Apagar AC Central)';
-        if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-wind text-cyan-400';
-        if (badgeSimStatus) {
-          badgeSimStatus.innerText = 'AC ACTIVO';
-          badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-        }
-        btnToggleSim.classList.remove('ring-2', 'ring-rose-500/50');
-        addAILog('SIMULACIÓN', 'Simulación de alza pausada. AC central reanudando climatización.', 'system');
+        updateSimulationToggleUI();
+        addAILog('SIMULACIÓN', 'Simulación de alza detenida. AC central reanudando climatización activa (HR y temperatura en descenso).', 'system');
       }
     });
   }
@@ -1647,18 +1715,11 @@ function setupEventListeners() {
       LabState.hasShownCritical75Alert = false;
       closeAbruptCriticalModal();
       triggerACEntranceAnimation();
-
-      if (textSimToggle) textSimToggle.innerText = 'Simular Alza (Apagar AC Central)';
-      if (iconSimToggle) iconSimToggle.className = 'fa-solid fa-power-off text-cyan-400';
-      if (badgeSimStatus) {
-        badgeSimStatus.innerText = 'AC ACTIVO';
-        badgeSimStatus.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-      }
-      if (btnToggleSim) btnToggleSim.classList.remove('ring-2', 'ring-rose-500/50');
+      updateSimulationToggleUI();
 
       LabState.sectors.forEach((sec) => {
-        sec.humidity = sec.baseHumidity;
-        sec.temp = sec.baseTemp;
+        sec.humidity = getNominalSectorHumidity(sec);
+        sec.temp = getNominalSectorTemp(sec);
       });
 
       initAITasks();
